@@ -1,0 +1,36 @@
+competitions:
+  - name: Premier League
+    country_or_type: England
+    data_source: football-data.co.uk
+    football_data_code: E0
+    match_type: club
+  - name: La Liga
+    country_or_type: Spain
+    data_source: football-data.co.uk
+    football_data_code: SP1
+    match_type: club
+  - name: Serie A
+    country_or_type: Italy
+    data_source: football-data.co.uk
+    football_data_code: I1
+    match_type: club
+  - name: Bundesliga
+    country_or_type: Germany
+    data_source: football-data.co.uk
+    football_data_code: D1
+    match_type: club
+  - name: Ligue 1
+    country_or_type: France
+    data_source: football-data.co.uk
+    football_data_code: F1
+    match_type: club
+  - name: FIFA World Cup
+    country_or_type: International
+    data_source: international_csv
+    football_data_code: null
+    match_type: international
+  - name: International matches
+    country_or_type: International
+    data_source: international_csv
+    football_data_code: null
+    match_type: international
