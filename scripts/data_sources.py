@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 import sys
 from urllib.error import HTTPError, URLError
@@ -206,29 +207,34 @@ def normalize_upcoming_frame(df: pd.DataFrame, competition: str | None = None) -
     aliases = {
         "home": "HomeTeam",
         "hometeam": "HomeTeam",
-        "home_team": "HomeTeam",
+        "hometeamname": "HomeTeam",
         "away": "AwayTeam",
         "awayteam": "AwayTeam",
-        "away_team": "AwayTeam",
-        "match date": "Date",
-        "fixture date": "Date",
+        "awayteamname": "AwayTeam",
+        "date": "Date",
+        "matchdate": "Date",
+        "fixturedate": "Date",
         "time": "Time",
         "competition": "Competition",
         "league": "Competition",
+        "tournament": "Competition",
         "homeodds": "HomeOdds",
-        "home_odds": "HomeOdds",
         "drawodds": "DrawOdds",
-        "draw_odds": "DrawOdds",
         "awayodds": "AwayOdds",
-        "away_odds": "AwayOdds",
         "over25odds": "Over25Odds",
-        "over_25_odds": "Over25Odds",
+        "over25": "Over25Odds",
+        "over250dds": "Over25Odds",
         "under25odds": "Under25Odds",
-        "under_25_odds": "Under25Odds",
+        "under25": "Under25Odds",
+        "under250dds": "Under25Odds",
         "oddssource": "OddsSource",
-        "odds_source": "OddsSource",
     }
-    data = data.rename(columns={c: aliases.get(c.lower().replace(" ", ""), c) for c in data.columns})
+
+    def canonical_column_name(column: object) -> str:
+        key = re.sub(r"[^a-z0-9]", "", str(column).strip().lower())
+        return aliases.get(key, str(column).strip())
+
+    data = data.rename(columns={c: canonical_column_name(c) for c in data.columns})
     if "Competition" not in data.columns:
         data["Competition"] = competition or data.get("Div", "")
     if competition:
@@ -248,8 +254,13 @@ def normalize_upcoming_frame(df: pd.DataFrame, competition: str | None = None) -
         data.loc[missing_dates, "Date"] = pd.to_datetime(
             data.loc[missing_dates, "Date"], errors="coerce", dayfirst=True
         )
+    for col in ["Over25Odds", "Under25Odds"]:
+        if col not in data.columns:
+            data[col] = pd.NA
     for col in ["HomeOdds", "DrawOdds", "AwayOdds", "Over25Odds", "Under25Odds"]:
         data[col] = pd.to_numeric(data[col], errors="coerce")
+    if "OddsSource" not in data.columns:
+        data["OddsSource"] = "Unavailable"
     data["OddsSource"] = data["OddsSource"].fillna("Unavailable")
     keep = data.dropna(subset=["Date", "HomeTeam", "AwayTeam"]).copy()
     if keep.empty:

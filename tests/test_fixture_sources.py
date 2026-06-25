@@ -10,6 +10,8 @@ if str(ROOT) not in sys.path:
 import pandas as pd
 import pytest
 
+from scripts.data_sources import UPCOMING_COLUMNS, normalize_upcoming_frame
+from scripts.predict_next_48h import generate_next_48h_predictions
 from scripts.update_international_fixtures import update_international_fixtures
 from src.fixture_sources.manual_csv import ManualCsvFixtureSource
 from src.fixture_sources.worldcup_static import WorldCupStaticFixtureSource
@@ -78,3 +80,110 @@ def test_predictions_probability_inputs_work_without_and_with_odds() -> None:
 
     assert home + draw + away == pytest.approx(1.0, abs=0.001)
     assert home > draw > away
+
+
+def test_normalize_upcoming_frame_creates_missing_total_odds_columns() -> None:
+    fixtures = normalize_upcoming_frame(
+        pd.DataFrame(
+            [
+                {
+                    "Date": "2026-07-01",
+                    "Time": "20:00",
+                    "Competition": "FIFA World Cup",
+                    "HomeTeam": "Spain",
+                    "AwayTeam": "Brazil",
+                }
+            ]
+        )
+    )
+
+    assert list(fixtures.columns) == UPCOMING_COLUMNS
+    assert pd.isna(fixtures.loc[0, "Over25Odds"])
+    assert pd.isna(fixtures.loc[0, "Under25Odds"])
+
+
+def test_normalize_upcoming_frame_accepts_total_odds_typos() -> None:
+    fixtures = normalize_upcoming_frame(
+        pd.DataFrame(
+            [
+                {
+                    "Date": "2026-07-01",
+                    "Time": "20:00",
+                    "Competition": "FIFA World Cup",
+                    "HomeTeam": "Spain",
+                    "AwayTeam": "Brazil",
+                    "Over250dds": 1.91,
+                    "Under250dds": 1.83,
+                }
+            ]
+        )
+    )
+
+    assert fixtures.loc[0, "Over25Odds"] == pytest.approx(1.91)
+    assert fixtures.loc[0, "Under25Odds"] == pytest.approx(1.83)
+
+
+def _write_minimal_international_history(path: Path) -> None:
+    teams = ["Mexico", "Canada", "United States", "Japan", "Spain", "Brazil", "France", "Germany"]
+    rows = []
+    for i in range(48):
+        home = teams[i % len(teams)]
+        away = teams[(i + 1) % len(teams)]
+        home_goals = i % 4
+        away_goals = (i + 2) % 3
+        rows.append(
+            {
+                "Date": (pd.Timestamp("2022-01-01") + pd.Timedelta(days=i)).strftime("%Y-%m-%d"),
+                "Competition": "FIFA World Cup" if i % 3 == 0 else "International Friendly",
+                "HomeTeam": home,
+                "AwayTeam": away,
+                "FTHG": home_goals,
+                "FTAG": away_goals,
+                "FTR": "H" if home_goals > away_goals else "A" if away_goals > home_goals else "D",
+            }
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(path, index=False)
+
+
+def test_worldcup_update_creates_international_fixtures_from_template(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    written = update_international_fixtures(output=Path("data/upcoming/international_fixtures.csv"))
+
+    assert Path("data/raw/worldcup_2026_fixtures.csv").exists()
+    assert Path("data/upcoming/international_fixtures.csv").exists()
+    assert not written.empty
+    assert set(UPCOMING_COLUMNS).issubset(pd.read_csv("data/upcoming/international_fixtures.csv").columns)
+
+
+def test_generate_next_48h_predictions_without_odds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_international_history(Path("data/processed/international_matches.csv"))
+    kickoff = (pd.Timestamp.now(tz=None) + pd.Timedelta(hours=24)).strftime("%Y-%m-%d")
+    source = Path("data/raw/worldcup_2026_fixtures.csv")
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(
+        "Date,Time,Competition,HomeTeam,AwayTeam,OddsSource\n"
+        f"{kickoff},19:00,FIFA World Cup,Mexico,Canada,Manual no odds\n"
+    )
+    update_international_fixtures(source_csv=str(source), output=Path("data/upcoming/international_fixtures.csv"))
+
+    predictions = generate_next_48h_predictions(competition="FIFA World Cup")
+
+    assert not predictions.empty
+    assert predictions.iloc[0]["ValueSignal"] == "No odds available"
+
+
+def test_zero_fixture_prediction_message_does_not_claim_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_international_history(Path("data/processed/international_matches.csv"))
+    Path("data/upcoming").mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(columns=UPCOMING_COLUMNS).to_csv("data/upcoming/international_fixtures.csv", index=False)
+
+    predictions = generate_next_48h_predictions(competition="FIFA World Cup")
+    output = capsys.readouterr().out
+
+    assert predictions.empty
+    assert "No international fixtures available" in output
+    assert "wrote 0 predictions" not in output

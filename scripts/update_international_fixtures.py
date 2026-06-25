@@ -94,14 +94,15 @@ def _normalise_source_frame(frame: pd.DataFrame) -> pd.DataFrame:
     return normalized.reindex(columns=[*UPCOMING_COLUMNS, "TournamentCategory"])
 
 
-def download_international_fixtures(include_api: bool = False) -> tuple[pd.DataFrame, list[str]]:
+def download_international_fixtures(include_api: bool = False, include_local_worldcup: bool = True) -> tuple[pd.DataFrame, list[str]]:
     frames: list[pd.DataFrame] = []
     messages: list[str] = []
 
-    worldcup_result = WorldCupStaticFixtureSource().load()
-    messages.extend(worldcup_result.messages)
-    if not worldcup_result.fixtures.empty:
-        frames.append(worldcup_result.fixtures)
+    if include_local_worldcup:
+        worldcup_result = WorldCupStaticFixtureSource().load()
+        messages.extend(worldcup_result.messages)
+        if not worldcup_result.fixtures.empty:
+            frames.append(worldcup_result.fixtures)
 
     if include_api:
         api_frame, api_messages = odds_api_events(international=True)
@@ -150,7 +151,8 @@ def update_international_fixtures(source_csv: str | None = None, output: Path = 
         fixtures = result.fixtures
         messages.extend(result.messages)
     else:
-        fixtures, messages = download_international_fixtures(include_api=include_api)
+        include_local_worldcup = Path(output) == INTERNATIONAL_UPCOMING
+        fixtures, messages = download_international_fixtures(include_api=include_api, include_local_worldcup=include_local_worldcup)
     normalized = normalize_upcoming_frame(fixtures)
     if not normalized.empty:
         dates = pd.to_datetime(normalized["Date"], errors="coerce")

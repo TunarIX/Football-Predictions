@@ -13,21 +13,38 @@ from .manual_csv import ManualCsvFixtureSource
 
 WORLD_CUP_2026_FIXTURES = Path("data/raw/worldcup_2026_fixtures.csv")
 WORLD_CUP_TEMPLATE_COLUMNS = UPCOMING_COLUMNS
-WORLD_CUP_TEMPLATE_ROWS = [
-    {
-        "Date": "2026-07-19",
-        "Time": "19:00",
-        "Competition": "FIFA World Cup",
-        "HomeTeam": "Mexico",
-        "AwayTeam": "TBD",
-        "HomeOdds": "",
-        "DrawOdds": "",
-        "AwayOdds": "",
-        "Over25Odds": "",
-        "Under25Odds": "",
-        "OddsSource": "Manual",
-    }
-]
+def _template_rows() -> list[dict[str, str]]:
+    """Return editable sample fixtures dated soon enough for the next-48h workflow."""
+
+    kickoff = (pd.Timestamp.now(tz=None).normalize() + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    return [
+        {
+            "Date": kickoff,
+            "Time": "19:00",
+            "Competition": "FIFA World Cup",
+            "HomeTeam": "Mexico",
+            "AwayTeam": "Canada",
+            "HomeOdds": "",
+            "DrawOdds": "",
+            "AwayOdds": "",
+            "Over25Odds": "",
+            "Under25Odds": "",
+            "OddsSource": "Manual template",
+        },
+        {
+            "Date": kickoff,
+            "Time": "22:00",
+            "Competition": "FIFA World Cup",
+            "HomeTeam": "United States",
+            "AwayTeam": "Japan",
+            "HomeOdds": "",
+            "DrawOdds": "",
+            "AwayOdds": "",
+            "Over25Odds": "",
+            "Under25Odds": "",
+            "OddsSource": "Manual template",
+        },
+    ]
 
 
 def ensure_worldcup_template(path: Path = WORLD_CUP_2026_FIXTURES) -> Path:
@@ -35,7 +52,7 @@ def ensure_worldcup_template(path: Path = WORLD_CUP_2026_FIXTURES) -> Path:
 
     if not path.exists():
         ensure_parent(path)
-        pd.DataFrame(WORLD_CUP_TEMPLATE_ROWS, columns=WORLD_CUP_TEMPLATE_COLUMNS).to_csv(path, index=False)
+        pd.DataFrame(_template_rows(), columns=WORLD_CUP_TEMPLATE_COLUMNS).to_csv(path, index=False)
     return path
 
 

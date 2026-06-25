@@ -92,7 +92,8 @@ def generate_next_48h_predictions(now: pd.Timestamp | None = None, competition: 
     rows: list[dict] = []
     for _, fixture in upcoming.iterrows():
         implied = odds_to_probabilities(fixture.HomeOdds, fixture.DrawOdds, fixture.AwayOdds)
-        if any(pd.isna(x) for x in implied):
+        odds_missing = any(pd.isna(x) for x in implied)
+        if odds_missing:
             implied = (1 / 3, 1 / 3, 1 / 3)
         table, feature_row, explanation = predict_match(
             model,
@@ -134,7 +135,7 @@ def generate_next_48h_predictions(now: pd.Timestamp | None = None, competition: 
                 "Top5Scorelines": table["Top 5 scorelines"].iloc[0],
                 "ConfidenceScore": float(table["Confidence score"].iloc[0]),
                 "ConfidenceReason": table["Confidence reason"].iloc[0],
-                "ValueSignal": value_signal(best[1], best[2]),
+                "ValueSignal": "No odds available" if odds_missing else value_signal(best[1], best[2]),
                 "ModelExplanation": " | ".join(explanation),
                 "FeatureImportanceSummary": influence_text,
                 "SimilarHistoricalMatches": similar_text,

@@ -358,9 +358,10 @@ else:
         st.write("Uses `data/processed/international_matches.csv` and `data/upcoming/international_fixtures.csv`. FIFA World Cup is filtered from the shared international rows.")
     else:
         st.write("Automatically uses `data/processed/historical_matches.csv` and `data/upcoming/upcoming_fixtures.csv`. Fixture imports use local/manual CSV adapters by default; optional API adapters can be enabled separately when keys are configured.")
-    st.info("No API key required. For World Cup predictions, place fixtures/odds in data/raw/worldcup_2026_fixtures.csv or upload the CSV. Manual CSV columns: Date, Time, Competition, HomeTeam, AwayTeam, HomeOdds, DrawOdds, AwayOdds, Over25Odds, Under25Odds, OddsSource")
+    st.info("No API key required. Edit data/raw/worldcup_2026_fixtures.csv or upload CSV, then click Update upcoming fixtures. Manual CSV columns: Date, Time, Competition, HomeTeam, AwayTeam, HomeOdds, DrawOdds, AwayOdds, Over25Odds, Under25Odds, OddsSource")
     upcoming_preview, upcoming_path, fixture_warning = load_upcoming_fixtures_for_competition(selected_competition)
     st.caption(f"Upcoming fixtures loaded: {len(upcoming_preview):,}")
+    st.caption(f"Upcoming fixtures file used: `{upcoming_path}`")
     if upcoming_path.exists():
         st.caption(f"Last upcoming update: {pd.Timestamp(upcoming_path.stat().st_mtime, unit='s').strftime('%Y-%m-%d %H:%M:%S')}")
     if upcoming_preview.empty:
@@ -381,7 +382,11 @@ else:
             command.extend(["--competition", selected_competition])
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode == 0:
-            st.success("Predictions generated.")
+            generated = safe_read_csv(Path("data/predictions/next_48h_predictions.csv"), PREDICTION_COLUMNS)
+            if generated.empty:
+                st.warning("No predictions generated because no upcoming fixtures were available.")
+            else:
+                st.success(f"Predictions generated for {len(generated):,} fixtures.")
             st.code(result.stdout[-2000:])
         else:
             st.error("Prediction generation failed.")
@@ -396,7 +401,7 @@ else:
                 st.warning(NO_INTERNATIONAL_FIXTURES_MESSAGE)
             else:
                 st.warning("No next-48h predictions available. Upcoming fixtures may be missing or no matches are scheduled in the next 48 hours.")
-            st.info("Manual fallback: upload a CSV with columns Date, Time, Competition, HomeTeam, AwayTeam, HomeOdds, DrawOdds, AwayOdds, Over25Odds, Under25Odds, OddsSource, then click Generate next 48h predictions.")
+            st.info("Edit data/raw/worldcup_2026_fixtures.csv or upload CSV, then click Update upcoming fixtures. Manual fallback columns: Date, Time, Competition, HomeTeam, AwayTeam, HomeOdds, DrawOdds, AwayOdds, Over25Odds, Under25Odds, OddsSource.")
         else:
             st.dataframe(
                 predictions.style.format(
