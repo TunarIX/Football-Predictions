@@ -4,7 +4,7 @@ Football Predictions is a football data analytics and probability estimation das
 
 ## Features
 
-- Upload one or more historical match CSV files.
+- Automatically download configured football-data.co.uk historical match and odds CSVs, while keeping manual uploads as a fallback.
 - Use a modular competition configuration in `config/competitions.yml`.
 - Support major football-data.co.uk club league CSVs and separate international CSV inputs.
 - Clean and standardize common match, score, result, and bookmaker odds columns.
@@ -14,6 +14,8 @@ Football Predictions is a football data analytics and probability estimation das
 - Convert decimal bookmaker odds into normalized implied probabilities.
 - Train a calibrated multi-feature model that uses odds as only one input, alongside team form, venue performance, goals, H2H, Elo, rest, neutral-site, and tournament-context features.
 - Estimate home win, draw, and away win probabilities for an upcoming match with probability calibration to reduce overconfident outputs.
+- Download upcoming fixtures from football-data.co.uk when available and generate predictions for every fixture in the next 48 hours.
+- Keep the selected odds source visible, preferring football-data.co.uk market averages (`AvgH`, `AvgD`, `AvgA`) and falling back to Bet365 (`B365H`, `B365D`, `B365A`) when needed.
 - Estimate a likely score, confidence score, and explanation notes for each prediction.
 - Highlight lightweight permutation feature importance so users can see which signals drove predictive power.
 - Find similar historical matches using engineered football features as supporting context, not just similar odds.
@@ -33,6 +35,16 @@ src/
   odds.py
   predictor.py
   visualization.py
+scripts/
+  data_sources.py
+  update_historical_data.py
+  update_upcoming_fixtures.py
+  predict_next_48h.py
+data/
+  raw/
+  processed/
+  upcoming/
+  predictions/
 requirements.txt
 README.md
 ```
@@ -60,6 +72,53 @@ Current focus competitions are Premier League, La Liga, Serie A, Bundesliga, Lig
 5. Restart Streamlit and select the new competition in the sidebar.
 
 No Python code change is required for a new competition that follows one of the existing loader formats.
+
+
+## Automatic football-data.co.uk downloads
+
+### Historical results and odds
+
+Run:
+
+```bash
+python scripts/update_historical_data.py
+```
+
+The script reads `config/competitions.yml`, downloads configured football-data.co.uk league CSVs from the public season folders, stores the raw CSVs in `data/raw/`, cleans them with the same app preprocessing, removes duplicate matches, and writes `data/processed/historical_matches.csv`. Historical odds remain from the football-data.co.uk source family. Per football-data.co.uk notes, those odds are collected from Betbrain, Oddsportal, and individual bookmakers. The app does not silently mix in unrelated odds feeds.
+
+### Upcoming fixtures and odds
+
+Run:
+
+```bash
+python scripts/update_upcoming_fixtures.py
+```
+
+The script attempts to download football-data.co.uk upcoming fixtures CSV data and writes the normalized output to `data/upcoming/upcoming_fixtures.csv` with these columns:
+
+`Date`, `Time`, `Competition`, `HomeTeam`, `AwayTeam`, `HomeOdds`, `DrawOdds`, `AwayOdds`, `OddsSource`.
+
+football-data.co.uk fixture odds are not always instantly available for every competition or fixture. When odds are present, the normalizer prefers market-average odds (`AvgH`, `AvgD`, `AvgA`) and otherwise uses Bet365 (`B365H`, `B365D`, `B365A`). The `OddsSource` column is shown in the dashboard so users can see whether a row used Market Avg, Bet365, or no available odds. The downloader is intentionally polite and limited to public CSV endpoints; it does not aggressively scrape pages.
+
+### Manual upcoming-fixture fallback
+
+If automatic upcoming data is missing, upload or pass a manual CSV with equivalent columns. From the command line:
+
+```bash
+python scripts/update_upcoming_fixtures.py --manual-csv path/to/manual_upcoming.csv
+```
+
+In Streamlit, use the **Next 48 Hours Predictions** page and upload a manual upcoming fixtures CSV. The upload is normalized to the same upcoming schema, so a future real odds API can be added later without changing the prediction pipeline. This is especially useful for World Cup and international matches where public club-league fixture feeds may not contain coverage.
+
+### Next 48 hours predictions
+
+Run:
+
+```bash
+python scripts/predict_next_48h.py
+```
+
+The script loads `data/processed/historical_matches.csv` and `data/upcoming/upcoming_fixtures.csv`, filters fixtures scheduled in the next 48 hours, and writes `data/predictions/next_48h_predictions.csv`. Each row includes home/draw/away probabilities, predicted score, confidence score, value signal, model explanation, similar historical matches, and visible odds source.
 
 ## Input formats
 
@@ -114,4 +173,4 @@ This project deliberately avoids adding features that require post-match informa
 
 ## Responsible framing
 
-This dashboard presents probabilities and historical analytics for education and research. A value signal is only an analytical comparison between model estimates and bookmaker implied probability; it is not financial advice or a recommendation to wager.
+This dashboard presents probabilities and historical analytics for education and research. It is an analytics/probability tool, not a betting guarantee. A value signal is only an analytical comparison between model estimates and bookmaker implied probability; it is not financial advice or a recommendation to wager.

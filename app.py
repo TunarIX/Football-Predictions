@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
+
+import pandas as pd
 import streamlit as st
 
 from src.competitions import competitions_table, load_competitions
 from src.data_loader import load_uploaded_files
+from scripts.data_sources import normalize_upcoming_frame
 from src.features import team_statistics
 from src.odds import (
     BOOKMAKERS,
@@ -44,8 +49,24 @@ with st.sidebar:
         (c for c in competitions if c["name"] == selected_competition),
         {"data_source": "football-data.co.uk"},
     )
+    if st.button("Update historical data"):
+        result = subprocess.run(["python", "scripts/update_historical_data.py"], capture_output=True, text=True)
+        if result.returncode == 0:
+            st.success("Historical data updated.")
+            st.code(result.stdout[-2000:])
+        else:
+            st.error("Historical update failed.")
+            st.code(result.stderr or result.stdout)
+    if st.button("Update upcoming fixtures"):
+        result = subprocess.run(["python", "scripts/update_upcoming_fixtures.py"], capture_output=True, text=True)
+        if result.returncode == 0:
+            st.success("Upcoming fixtures updated.")
+            st.code(result.stdout[-2000:])
+        else:
+            st.error("Upcoming fixtures update failed.")
+            st.code(result.stderr or result.stdout)
     uploads = st.file_uploader(
-        "Upload match CSV files", type="csv", accept_multiple_files=True
+        "Upload match CSV files (manual fallback)", type="csv", accept_multiple_files=True
     )
     bookmaker = st.selectbox(
         "Odds source",
@@ -55,23 +76,29 @@ with st.sidebar:
     form_window = st.slider("Recent form window", 3, 10, 5)
     page = st.radio(
         "Navigation",
-        ["Overview", "Team statistics", "Odds analysis", "Upcoming prediction"],
+        ["Overview", "Team statistics", "Odds analysis", "Upcoming prediction", "Next 48 Hours Predictions"],
         index=0,
     )
 
-if not uploads:
-    st.info(
-        "Upload one or more CSV files to begin. Club leagues use football-data.co.uk format; international competitions can use national-team CSVs with dates, teams, scores, tournaments, and optional odds."
-    )
-    st.subheader("Configured competitions")
-    st.dataframe(competitions_table(), use_container_width=True, hide_index=True)
-    st.stop()
+historical_path = Path("data/processed/historical_matches.csv")
 
 try:
-    data = load_uploaded_files(uploads, comp.get("data_source", "football-data.co.uk"))
+    if uploads:
+        data = load_uploaded_files(uploads, comp.get("data_source", "football-data.co.uk"))
+        data_source_note = "manual upload"
+    elif historical_path.exists():
+        data = pd.read_csv(historical_path, parse_dates=["Date"])
+        data_source_note = str(historical_path)
+    else:
+        st.info(
+            "Upload one or more CSV files or click 'Update historical data' to download configured football-data.co.uk league CSVs."
+        )
+        st.subheader("Configured competitions")
+        st.dataframe(competitions_table(), use_container_width=True, hide_index=True)
+        st.stop()
     data = add_implied_probabilities(data, bookmaker)
 except Exception as exc:
-    st.error(f"Could not load the uploaded CSV files: {exc}")
+    st.error(f"Could not load match data: {exc}")
     st.stop()
 
 if data.empty:
@@ -80,6 +107,7 @@ if data.empty:
 
 teams = sorted(set(data["HomeTeam"].dropna()) | set(data["AwayTeam"].dropna()))
 st.sidebar.success(f"Loaded {len(data):,} matches and {len(teams):,} teams")
+st.sidebar.caption(f"Historical data: {data_source_note}")
 st.sidebar.caption(
     f"Source: {comp.get('data_source')} · type: {comp.get('match_type')}"
 )
@@ -152,7 +180,7 @@ elif page == "Odds analysis":
         use_container_width=True,
     )
 
-else:
+elif page == "Upcoming prediction":
     st.subheader("Upcoming match probability estimator")
     st.write(
         "Predictions combine leak-free recent form, goal difference, scoring reliability, venue/rest effects, neutral-site and World Cup context, Elo ratings, calibrated bookmaker context, and similar historical matches."
@@ -238,3 +266,52 @@ else:
     st.caption(
         f"Training rows used by calibrated model: {len(training_data):,}. This is an analytical probability estimate, not financial advice."
     )
+
+else:
+    st.subheader("Next 48 Hours Predictions")
+    st.write("Automatically uses `data/processed/historical_matches.csv` and `data/upcoming/upcoming_fixtures.csv`. Fixture odds keep their visible source; football-data.co.uk market averages are preferred, then Bet365.")
+    manual_upcoming = st.file_uploader("Manual upcoming fixtures CSV fallback", type="csv", key="manual_upcoming")
+    if manual_upcoming is not None:
+        manual = normalize_upcoming_frame(pd.read_csv(manual_upcoming, encoding_errors="ignore"))
+        Path("data/upcoming").mkdir(parents=True, exist_ok=True)
+        manual.to_csv("data/upcoming/upcoming_fixtures.csv", index=False)
+        st.success(f"Saved {len(manual):,} manual upcoming fixtures.")
+    if st.button("Generate next 48h predictions"):
+        result = subprocess.run(["python", "scripts/predict_next_48h.py"], capture_output=True, text=True)
+        if result.returncode == 0:
+            st.success("Predictions generated.")
+            st.code(result.stdout[-2000:])
+        else:
+            st.error("Prediction generation failed.")
+            st.code(result.stderr or result.stdout)
+    predictions_path = Path("data/predictions/next_48h_predictions.csv")
+    if not predictions_path.exists():
+        st.info("No generated predictions yet. Update fixtures, then generate next 48h predictions.")
+    else:
+        predictions = pd.read_csv(predictions_path)
+        if predictions.empty:
+            st.warning("No fixtures found in the next 48 hours.")
+        else:
+            st.dataframe(
+                predictions.style.format(
+                    {
+                        "HomeWinProbability": "{:.1%}",
+                        "DrawProbability": "{:.1%}",
+                        "AwayWinProbability": "{:.1%}",
+                        "ConfidenceScore": "{:.1%}",
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+            selected = st.selectbox("Prediction detail", predictions.index, format_func=lambda i: f"{predictions.loc[i, 'HomeTeam']} vs {predictions.loc[i, 'AwayTeam']}")
+            row = predictions.loc[selected]
+            st.metric("Predicted score", row["PredictedScore"])
+            st.metric("Confidence", f"{row['ConfidenceScore']:.0%}")
+            st.metric("Value signal", row["ValueSignal"])
+            st.caption(f"Odds source: {row['OddsSource']}")
+            st.write("Model explanation")
+            for note in str(row["ModelExplanation"]).split(" | "):
+                st.write(f"- {note}")
+            st.write("Similar historical matches")
+            st.write(row["SimilarHistoricalMatches"])

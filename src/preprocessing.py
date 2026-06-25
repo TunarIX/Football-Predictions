@@ -32,6 +32,7 @@ EXPECTED_COLUMNS = [
     "AvgH",
     "AvgD",
     "AvgA",
+    "OddsSource",
 ]
 
 REQUIRED_COLUMNS = ["Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR"]
@@ -51,7 +52,7 @@ ODDS_COLUMNS = [
         "HTR",
     }
 ]
-NUMERIC_COLUMNS = ["FTHG", "FTAG", "HTHG", "HTAG", *ODDS_COLUMNS]
+NUMERIC_COLUMNS = ["FTHG", "FTAG", "HTHG", "HTAG", *[c for c in ODDS_COLUMNS if c != "OddsSource"]]
 RESULTS = {"H", "D", "A"}
 
 INTERNATIONAL_ALIASES = {
@@ -75,6 +76,7 @@ INTERNATIONAL_ALIASES = {
     "home_odds": "AvgH",
     "draw_odds": "AvgD",
     "away_odds": "AvgA",
+    "odds_source": "OddsSource",
     "avgh": "AvgH",
     "avgd": "AvgD",
     "avga": "AvgA",
@@ -119,8 +121,14 @@ def _finish_cleaning(data: pd.DataFrame) -> pd.DataFrame:
     data["Date"] = parse_dates(data["Date"])
     for col in NUMERIC_COLUMNS:
         data[col] = pd.to_numeric(data[col], errors="coerce")
-    for col in ["HomeTeam", "AwayTeam", "FTR", "HTR"]:
+    for col in ["HomeTeam", "AwayTeam", "FTR", "HTR", "OddsSource"]:
         data[col] = data[col].astype("string").str.strip()
+    avg_available = data[["AvgH", "AvgD", "AvgA"]].notna().all(axis=1)
+    bet365_available = data[["B365H", "B365D", "B365A"]].notna().all(axis=1)
+    missing_source = data["OddsSource"].isna() | (data["OddsSource"] == "")
+    data.loc[missing_source & avg_available, "OddsSource"] = "Market Avg"
+    data.loc[missing_source & ~avg_available & bet365_available, "OddsSource"] = "Bet365"
+    data.loc[missing_source & ~avg_available & ~bet365_available, "OddsSource"] = "Unavailable"
     data["FTR"] = data["FTR"].str.upper()
     data["HTR"] = data["HTR"].str.upper()
     data = data.dropna(subset=REQUIRED_COLUMNS)
