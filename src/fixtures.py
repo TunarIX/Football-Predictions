@@ -20,8 +20,7 @@ INTERNATIONAL_UPCOMING = Path("data/upcoming/international_fixtures.csv")
 CLUB_HISTORICAL = Path("data/processed/historical_matches.csv")
 CLUB_UPCOMING = Path("data/upcoming/upcoming_fixtures.csv")
 MISSING_INTERNATIONAL_HISTORY_MESSAGE = (
-    "Automatic international historical data source is not configured. "
-    "Add a CSV to data/raw/international_matches.csv or configure an API/source."
+    "International historical data is missing. Click Update historical data to download the public martj42/international_results dataset, or add a manual CSV to data/raw/international_matches.csv."
 )
 NO_INTERNATIONAL_FIXTURES_MESSAGE = (
     "No international fixtures available. Add data/upcoming/international_fixtures.csv "

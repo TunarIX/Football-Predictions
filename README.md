@@ -173,11 +173,13 @@ The app recognizes common football-data.co.uk columns including:
 
 All national-team competitions share one historical file: `data/processed/international_matches.csv`. This includes FIFA World Cup, UEFA Euro, Nations League, World Cup qualifiers, international friendlies, and other national-team matches. Selecting **FIFA World Cup** filters this shared file to `Competition`/`Tournament = FIFA World Cup`; selecting **International matches** uses all rows. Do not maintain a duplicate World Cup historical CSV.
 
-International files can include columns such as `date`, `home_team`, `away_team`, `home_score`, `away_score`, `tournament`, `competition`, `country`, `neutral`, and optional odds columns `home_odds`, `draw_odds`, `away_odds`. The loader maps these to the app's canonical format and derives `FTR` from the score when needed. If `data/processed/international_matches.csv` is missing, the app shows a warning and explains that the file should be provided or updated from an international data provider instead of crashing.
+By default, `scripts/update_international_data.py` downloads international historical results from the public `martj42/international_results` GitHub dataset at `https://raw.githubusercontent.com/martj42/international_results/master/results.csv`. It saves the downloaded raw copy to `data/raw/international_matches.csv`, normalizes `date`, `tournament`, `home_team`, `away_team`, `home_score`, `away_score`, `neutral`, and `country`, and derives `FTR` from the final score.
 
-Clicking **Update historical data** while **FIFA World Cup** or **International matches** is selected runs `scripts/update_international_data.py`. The updater currently supports the manual source `data/raw/international_matches.csv`; if that file is absent and no automatic source has been configured, it fails with: `Automatic international historical data source is not configured. Add a CSV to data/raw/international_matches.csv or configure an API/source.` The updater validates that the processed file has rows, required columns, parsed dates, and `FTR` values of `H`, `D`, or `A` before writing, so an empty or invalid source will not overwrite a previously valid `data/processed/international_matches.csv`.
+Clicking **Update historical data** while **FIFA World Cup** or **International matches** is selected runs `scripts/update_international_data.py`. The updater validates that the processed file has rows, required columns, parsed dates, and `FTR` values of `H`, `D`, or `A` before writing, so an empty or invalid download will not overwrite a previously valid `data/processed/international_matches.csv`.
 
-Required manual CSV example for `data/raw/international_matches.csv`:
+To override the public download, place your own CSV at `data/raw/international_matches.csv`. When that file exists, the updater uses it instead of downloading from GitHub. Manual files can include columns such as `date`, `home_team`, `away_team`, `home_score`, `away_score`, `tournament`, `competition`, `country`, `neutral`, and optional odds columns `home_odds`, `draw_odds`, `away_odds`. The loader maps these to the app's canonical format and derives `FTR` from the score when needed.
+
+Manual CSV example for `data/raw/international_matches.csv`:
 
 ```csv
 date,home_team,away_team,home_score,away_score,tournament,neutral,country
