@@ -20,7 +20,9 @@ from src.odds import (
     similar_odds_matches,
 )
 from src.predictor import (
+    evaluate_model_by_date,
     feature_importance,
+    feature_influence_summary,
     predict_match,
     similar_historical_matches,
     train_baseline_model,
@@ -228,6 +230,10 @@ elif page == "Upcoming prediction":
     for note in explanation:
         st.write(f"- {note}")
     st.subheader("Feature importance")
+    local_influence = feature_influence_summary(model, feature_row)
+    if not local_influence.empty:
+        st.write("Feature signals for this fixture")
+        st.dataframe(local_influence.style.format({"Signal strength": "{:.3f}"}), use_container_width=True, hide_index=True)
     importances = feature_importance(model, training_data)
     if importances.empty:
         st.info(
@@ -239,6 +245,14 @@ elif page == "Upcoming prediction":
             use_container_width=True,
             hide_index=True,
         )
+    st.subheader("Model evaluation")
+    metrics, calibration_table = evaluate_model_by_date(data)
+    if metrics.empty:
+        st.info("Evaluation needs more chronological feature-ready matches.")
+    else:
+        st.dataframe(metrics.style.format({"Value": "{:.3f}"}), use_container_width=True, hide_index=True)
+        st.write("Calibration table")
+        st.dataframe(calibration_table.style.format({"AveragePredictedProbability": "{:.1%}", "ActualFrequency": "{:.1%}"}), use_container_width=True, hide_index=True)
     st.subheader("Similar historical matches (multi-feature context)")
     similar = similar_historical_matches(training_data, feature_row)
     st.dataframe(
@@ -299,6 +313,8 @@ else:
                         "DrawProbability": "{:.1%}",
                         "AwayWinProbability": "{:.1%}",
                         "ConfidenceScore": "{:.1%}",
+                        "ExpectedHomeGoals": "{:.2f}",
+                        "ExpectedAwayGoals": "{:.2f}",
                     }
                 ),
                 use_container_width=True,
@@ -309,6 +325,9 @@ else:
             st.metric("Predicted score", row["PredictedScore"])
             st.metric("Confidence", f"{row['ConfidenceScore']:.0%}")
             st.metric("Value signal", row["ValueSignal"])
+            st.write(f"Confidence reason: {row.get('ConfidenceReason', 'Not available')}")
+            st.write(f"Top 5 scorelines: {row.get('Top5Scorelines', 'Not available')}")
+            st.write(f"Feature importance summary: {row.get('FeatureImportanceSummary', 'Not available')}")
             st.caption(f"Odds source: {row['OddsSource']}")
             st.write("Model explanation")
             for note in str(row["ModelExplanation"]).split(" | "):

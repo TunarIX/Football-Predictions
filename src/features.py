@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .elo import current_elo_ratings
+from .elo import DEFAULT_HOME_ADVANTAGE, current_elo_ratings
 
 RESULT_POINTS = {"W": 3, "D": 1, "L": 0}
 
@@ -50,6 +50,32 @@ def _window_stats(rows: pd.DataFrame, n: int) -> dict[str, float]:
         f"ScoredRate{n}": _rate(tail["GF"] > 0, True),
         f"CleanSheetRate{n}": _rate(tail["GA"] == 0, True),
         f"DrawRate{n}": _rate(tail["TeamResult"], "D"),
+    }
+
+
+def _weighted_window_stats(rows: pd.DataFrame, n: int) -> dict[str, float]:
+    """Recency-weighted form: latest match gets the largest linear weight."""
+    tail = rows.tail(n)
+    if tail.empty:
+        return {
+            f"WPPG{n}": 0.0,
+            f"WGF{n}": 0.0,
+            f"WGA{n}": 0.0,
+            f"WGD{n}": 0.0,
+            f"FormConsistency{n}": 0.0,
+        }
+    weights = np.arange(1, len(tail) + 1, dtype=float)
+    weights = weights / weights.sum()
+    points = tail["TeamResult"].map(RESULT_POINTS).astype(float).to_numpy()
+    gf = tail["GF"].astype(float).to_numpy()
+    ga = tail["GA"].astype(float).to_numpy()
+    gd = gf - ga
+    return {
+        f"WPPG{n}": float(np.dot(points, weights)),
+        f"WGF{n}": float(np.dot(gf, weights)),
+        f"WGA{n}": float(np.dot(ga, weights)),
+        f"WGD{n}": float(np.dot(gd, weights)),
+        f"FormConsistency{n}": float(1 / (1 + np.average(np.abs(gd - np.average(gd, weights=weights)), weights=weights))),
     }
 
 
@@ -145,6 +171,12 @@ def _features_from_history(
     """Generate the full multi-feature set from matches before the target fixture."""
     home_rows = _team_match_rows(hist, home_team)
     away_rows = _team_match_rows(hist, away_team)
+    home_3w = _weighted_window_stats(home_rows, 3)
+    home_5w = _weighted_window_stats(home_rows, 5)
+    home_10w = _weighted_window_stats(home_rows, 10)
+    away_3w = _weighted_window_stats(away_rows, 3)
+    away_5w = _weighted_window_stats(away_rows, 5)
+    away_10w = _weighted_window_stats(away_rows, 10)
     home_5 = _window_stats(home_rows, 5)
     home_10 = _window_stats(home_rows, 10)
     away_5 = _window_stats(away_rows, 5)
@@ -176,7 +208,7 @@ def _features_from_history(
     home_elo = ratings.get(home_team, 1500.0)
     away_elo = ratings.get(away_team, 1500.0)
     neutral_flag = float(_as_bool(neutral))
-    home_advantage = 0.0 if neutral_flag else 55.0
+    home_advantage = 0.0 if neutral_flag else DEFAULT_HOME_ADVANTAGE
     world_cup, knockout = _match_type_flags(competition)
     market = np.array(implied, dtype=float)
     market_entropy = float(
@@ -188,6 +220,32 @@ def _features_from_history(
         "HomePPG10": home_10["PPG10"],
         "AwayPPG5": away_5["PPG5"],
         "AwayPPG10": away_10["PPG10"],
+        "HomeWPPG3": home_3w["WPPG3"],
+        "HomeWPPG5": home_5w["WPPG5"],
+        "HomeWPPG10": home_10w["WPPG10"],
+        "AwayWPPG3": away_3w["WPPG3"],
+        "AwayWPPG5": away_5w["WPPG5"],
+        "AwayWPPG10": away_10w["WPPG10"],
+        "HomeWGF3": home_3w["WGF3"],
+        "HomeWGF5": home_5w["WGF5"],
+        "HomeWGF10": home_10w["WGF10"],
+        "HomeWGA3": home_3w["WGA3"],
+        "HomeWGA5": home_5w["WGA5"],
+        "HomeWGA10": home_10w["WGA10"],
+        "HomeWGD3": home_3w["WGD3"],
+        "HomeWGD5": home_5w["WGD5"],
+        "HomeWGD10": home_10w["WGD10"],
+        "AwayWGF3": away_3w["WGF3"],
+        "AwayWGF5": away_5w["WGF5"],
+        "AwayWGF10": away_10w["WGF10"],
+        "AwayWGA3": away_3w["WGA3"],
+        "AwayWGA5": away_5w["WGA5"],
+        "AwayWGA10": away_10w["WGA10"],
+        "AwayWGD3": away_3w["WGD3"],
+        "AwayWGD5": away_5w["WGD5"],
+        "AwayWGD10": away_10w["WGD10"],
+        "HomeFormConsistency": home_5w["FormConsistency5"],
+        "AwayFormConsistency": away_5w["FormConsistency5"],
         "HomeGF5": home_5["GF5"],
         "HomeGA5": home_5["GA5"],
         "HomeGF10": home_10["GF10"],
@@ -242,6 +300,32 @@ def build_match_features(df: pd.DataFrame) -> pd.DataFrame:
         "HomePPG10",
         "AwayPPG5",
         "AwayPPG10",
+        "HomeWPPG3",
+        "HomeWPPG5",
+        "HomeWPPG10",
+        "AwayWPPG3",
+        "AwayWPPG5",
+        "AwayWPPG10",
+        "HomeWGF3",
+        "HomeWGF5",
+        "HomeWGF10",
+        "HomeWGA3",
+        "HomeWGA5",
+        "HomeWGA10",
+        "HomeWGD3",
+        "HomeWGD5",
+        "HomeWGD10",
+        "AwayWGF3",
+        "AwayWGF5",
+        "AwayWGF10",
+        "AwayWGA3",
+        "AwayWGA5",
+        "AwayWGA10",
+        "AwayWGD3",
+        "AwayWGD5",
+        "AwayWGD10",
+        "HomeFormConsistency",
+        "AwayFormConsistency",
         "HomeGF5",
         "HomeGA5",
         "HomeGF10",

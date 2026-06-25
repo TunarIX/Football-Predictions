@@ -13,7 +13,7 @@ if str(ROOT) not in sys.path:
 
 from scripts.data_sources import normalize_upcoming_frame
 from src.odds import odds_to_probabilities
-from src.predictor import predict_match, similar_historical_matches, train_baseline_model
+from src.predictor import feature_influence_summary, predict_match, similar_historical_matches, train_baseline_model
 
 HISTORICAL = Path("data/processed/historical_matches.csv")
 UPCOMING = Path("data/upcoming/upcoming_fixtures.csv")
@@ -62,6 +62,8 @@ def generate_next_48h_predictions(now: pd.Timestamp | None = None) -> pd.DataFra
             implied = (1 / 3, 1 / 3, 1 / 3)
         table, feature_row, explanation = predict_match(model, historical, fixture.HomeTeam, fixture.AwayTeam, implied)
         similar = similar_historical_matches(training, feature_row, limit=5)
+        influence = feature_influence_summary(model, feature_row, limit=5)
+        influence_text = "; ".join(f"{r['Feature']}: {r['Signal strength']:.2f}" for _, r in influence.iterrows())
         similar_text = "; ".join(
             f"{r.Date.date() if hasattr(r.Date, 'date') else r.Date} {r.HomeTeam} {r.FTR} {r.AwayTeam}"
             for r in similar.itertuples()
@@ -86,9 +88,14 @@ def generate_next_48h_predictions(now: pd.Timestamp | None = None) -> pd.DataFra
                 "DrawProbability": draw_p,
                 "AwayWinProbability": away_p,
                 "PredictedScore": table["Estimated score"].iloc[0],
+                "ExpectedHomeGoals": float(table["Expected home goals"].iloc[0]),
+                "ExpectedAwayGoals": float(table["Expected away goals"].iloc[0]),
+                "Top5Scorelines": table["Top 5 scorelines"].iloc[0],
                 "ConfidenceScore": float(table["Confidence score"].iloc[0]),
+                "ConfidenceReason": table["Confidence reason"].iloc[0],
                 "ValueSignal": value_signal(best[1], best[2]),
                 "ModelExplanation": " | ".join(explanation),
+                "FeatureImportanceSummary": influence_text,
                 "SimilarHistoricalMatches": similar_text,
             }
         )
