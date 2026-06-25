@@ -15,6 +15,13 @@ from scripts.data_sources import UPCOMING_COLUMNS, normalize_upcoming_frame
 from scripts.predict_next_48h import PREDICTION_COLUMNS
 from src.preprocessing import EXPECTED_COLUMNS
 from src.features import team_statistics
+from src.fixtures import (
+    INTERNATIONAL_UPCOMING,
+    NO_INTERNATIONAL_FIXTURES_MESSAGE,
+    is_international_competition,
+    load_historical_matches_for_competition,
+    load_upcoming_fixtures_for_competition,
+)
 from src.odds import (
     BOOKMAKERS,
     add_implied_probabilities,
@@ -91,12 +98,11 @@ try:
     if uploads:
         data = load_uploaded_files(uploads, comp.get("data_source", "football-data.co.uk"))
         data_source_note = "manual upload"
-    elif historical_path.exists():
-        data = safe_read_csv(historical_path, EXPECTED_COLUMNS, parse_dates=["Date"])
-        data_source_note = str(historical_path)
+        data_warning = None
     else:
-        data = pd.DataFrame(columns=EXPECTED_COLUMNS)
-        data_source_note = "missing historical data"
+        data, data_source_note, data_warning = load_historical_matches_for_competition(selected_competition, bookmaker)
+    if data_warning:
+        st.warning(data_warning)
     data = add_implied_probabilities(data, bookmaker) if not data.empty else data
 except Exception as exc:
     st.error(f"Could not load match data: {exc}")
@@ -346,15 +352,17 @@ elif page == "Backtesting":
 
 else:
     st.subheader("Next 48 Hours Predictions")
-    st.write("Automatically uses `data/processed/historical_matches.csv` and `data/upcoming/upcoming_fixtures.csv`. Fixture odds keep their visible source; football-data.co.uk market averages are preferred, then Bet365.")
+    if is_international_competition(selected_competition):
+        st.write("Uses `data/processed/international_matches.csv` and `data/upcoming/international_fixtures.csv`. FIFA World Cup is filtered from the shared international rows.")
+    else:
+        st.write("Automatically uses `data/processed/historical_matches.csv` and `data/upcoming/upcoming_fixtures.csv`. Fixture odds keep their visible source; football-data.co.uk market averages are preferred, then Bet365.")
     st.info("Manual upcoming fixtures CSV columns: Date, Time, Competition, HomeTeam, AwayTeam, HomeOdds, DrawOdds, AwayOdds, OddsSource")
-    upcoming_path = Path("data/upcoming/upcoming_fixtures.csv")
-    upcoming_preview = normalize_upcoming_frame(safe_read_csv(upcoming_path, UPCOMING_COLUMNS))
+    upcoming_preview, upcoming_path, fixture_warning = load_upcoming_fixtures_for_competition(selected_competition)
     st.caption(f"Upcoming fixtures loaded: {len(upcoming_preview):,}")
     if upcoming_path.exists():
         st.caption(f"Last upcoming update: {pd.Timestamp(upcoming_path.stat().st_mtime, unit='s').strftime('%Y-%m-%d %H:%M:%S')}")
     if upcoming_preview.empty:
-        st.warning("No upcoming fixtures are available. Upload a manual CSV with columns: Date, Time, Competition, HomeTeam, AwayTeam, HomeOdds, DrawOdds, AwayOdds, OddsSource.")
+        st.warning(fixture_warning or "No upcoming fixtures are available. Upload a manual CSV with columns: Date, Time, Competition, HomeTeam, AwayTeam, HomeOdds, DrawOdds, AwayOdds, OddsSource.")
     else:
         odds_available = upcoming_preview[["HomeOdds", "DrawOdds", "AwayOdds"]].notna().all(axis=1).sum()
         st.caption(f"Upcoming odds source availability: {odds_available:,}/{len(upcoming_preview):,} fixtures with full odds")
@@ -362,10 +370,14 @@ else:
     if manual_upcoming is not None:
         manual = normalize_upcoming_frame(safe_read_csv(manual_upcoming, UPCOMING_COLUMNS))
         Path("data/upcoming").mkdir(parents=True, exist_ok=True)
-        manual.to_csv("data/upcoming/upcoming_fixtures.csv", index=False)
+        target_path = INTERNATIONAL_UPCOMING if is_international_competition(selected_competition) else Path("data/upcoming/upcoming_fixtures.csv")
+        manual.to_csv(target_path, index=False)
         st.success(f"Saved {len(manual):,} manual upcoming fixtures.")
     if st.button("Generate next 48h predictions"):
-        result = subprocess.run(["python", "scripts/predict_next_48h.py"], capture_output=True, text=True)
+        command = ["python", "scripts/predict_next_48h.py"]
+        if selected_competition:
+            command.extend(["--competition", selected_competition])
+        result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode == 0:
             st.success("Predictions generated.")
             st.code(result.stdout[-2000:])
@@ -378,7 +390,10 @@ else:
     else:
         predictions = safe_read_csv(predictions_path, PREDICTION_COLUMNS)
         if predictions.empty:
-            st.warning("No next-48h predictions available. Upcoming fixtures may be missing or no matches are scheduled in the next 48 hours.")
+            if is_international_competition(selected_competition):
+                st.warning(NO_INTERNATIONAL_FIXTURES_MESSAGE)
+            else:
+                st.warning("No next-48h predictions available. Upcoming fixtures may be missing or no matches are scheduled in the next 48 hours.")
             st.info("Manual fallback: upload a CSV with columns Date, Time, Competition, HomeTeam, AwayTeam, HomeOdds, DrawOdds, AwayOdds, OddsSource, then click Generate next 48h predictions.")
         else:
             st.dataframe(

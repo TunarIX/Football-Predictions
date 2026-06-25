@@ -13,6 +13,10 @@ if str(ROOT) not in sys.path:
 
 from scripts.data_sources import UPCOMING_COLUMNS, normalize_upcoming_frame
 from src.data_loader import safe_read_csv
+from src.fixtures import (
+    load_historical_matches_for_competition,
+    load_upcoming_fixtures_for_competition,
+)
 from src.odds import odds_to_probabilities
 from src.preprocessing import EXPECTED_COLUMNS
 from src.predictor import feature_influence_summary, predict_match, similar_historical_matches, train_baseline_model
@@ -53,14 +57,26 @@ def value_signal(model_prob: float, implied: float | None) -> str:
     return "Close to market"
 
 
-def generate_next_48h_predictions(now: pd.Timestamp | None = None) -> pd.DataFrame:
-    historical = safe_read_csv(HISTORICAL, EXPECTED_COLUMNS, parse_dates=["Date"])
+def generate_next_48h_predictions(now: pd.Timestamp | None = None, competition: str | None = None) -> pd.DataFrame:
+    if competition:
+        historical, historical_source, history_warning = load_historical_matches_for_competition(competition)
+        upcoming, upcoming_source, fixture_warning = load_upcoming_fixtures_for_competition(competition)
+    else:
+        historical = safe_read_csv(HISTORICAL, EXPECTED_COLUMNS, parse_dates=["Date"])
+        historical_source = str(HISTORICAL)
+        history_warning = None
+        upcoming = normalize_upcoming_frame(safe_read_csv(UPCOMING, UPCOMING_COLUMNS))
+        upcoming_source = UPCOMING
+        fixture_warning = None
     if historical.empty:
+        if history_warning:
+            return _write_empty_predictions(history_warning)
         return _write_empty_predictions(
-            f"Missing or empty {HISTORICAL}; please update historical data before generating predictions."
+            f"Missing or empty {historical_source}; please update historical data before generating predictions."
         )
-    upcoming = normalize_upcoming_frame(safe_read_csv(UPCOMING, UPCOMING_COLUMNS))
     if upcoming.empty:
+        if fixture_warning:
+            return _write_empty_predictions(fixture_warning)
         return _write_empty_predictions(
             "No upcoming fixtures available; run scripts/update_upcoming_fixtures.py or provide a manual CSV."
         )
@@ -78,7 +94,14 @@ def generate_next_48h_predictions(now: pd.Timestamp | None = None) -> pd.DataFra
         implied = odds_to_probabilities(fixture.HomeOdds, fixture.DrawOdds, fixture.AwayOdds)
         if any(pd.isna(x) for x in implied):
             implied = (1 / 3, 1 / 3, 1 / 3)
-        table, feature_row, explanation = predict_match(model, historical, fixture.HomeTeam, fixture.AwayTeam, implied)
+        table, feature_row, explanation = predict_match(
+            model,
+            historical,
+            fixture.HomeTeam,
+            fixture.AwayTeam,
+            implied,
+            competition=fixture.get("Competition", ""),
+        )
         similar = similar_historical_matches(training, feature_row, limit=5)
         influence = feature_influence_summary(model, feature_row, limit=5)
         influence_text = "; ".join(f"{r['Feature']}: {r['Signal strength']:.2f}" for _, r in influence.iterrows())
@@ -125,4 +148,9 @@ def generate_next_48h_predictions(now: pd.Timestamp | None = None) -> pd.DataFra
 
 
 if __name__ == "__main__":
-    generate_next_48h_predictions()
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--competition", help="Optional selected competition filter, e.g. FIFA World Cup")
+    args = parser.parse_args()
+    generate_next_48h_predictions(competition=args.competition)

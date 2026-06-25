@@ -62,7 +62,7 @@ Supported competitions are configured in `config/competitions.yml`. Each entry c
   match_type: club
 ```
 
-Current focus competitions are Premier League, La Liga, Serie A, Bundesliga, Ligue 1, FIFA World Cup, and general international matches.
+Current focus competitions are Premier League, La Liga, Serie A, Bundesliga, Ligue 1, FIFA World Cup, and general international matches. FIFA World Cup remains selectable, but it is a filtered view of the shared international national-team dataset rather than a separate World Cup data source.
 
 ### Add a new league later
 
@@ -171,7 +171,22 @@ The app recognizes common football-data.co.uk columns including:
 
 ### International CSVs
 
-International files can include columns such as `date`, `home_team`, `away_team`, `home_score`, `away_score`, `tournament`, `country`, `neutral`, and optional odds columns `home_odds`, `draw_odds`, `away_odds`. The loader maps these to the app's canonical format and derives `FTR` from the score when needed.
+All national-team competitions share one historical file: `data/processed/international_matches.csv`. This includes FIFA World Cup, UEFA Euro, Nations League, World Cup qualifiers, international friendlies, and other national-team matches. Selecting **FIFA World Cup** filters this shared file to `Competition`/`Tournament = FIFA World Cup`; selecting **International matches** uses all rows. Do not maintain a duplicate World Cup historical CSV.
+
+International files can include columns such as `date`, `home_team`, `away_team`, `home_score`, `away_score`, `tournament`, `competition`, `country`, `neutral`, and optional odds columns `home_odds`, `draw_odds`, `away_odds`. The loader maps these to the app's canonical format and derives `FTR` from the score when needed. If `data/processed/international_matches.csv` is missing, the app shows a warning and explains that the file should be provided or updated from an international data provider instead of crashing.
+
+### International upcoming fixtures
+
+All national-team upcoming fixtures share one file: `data/upcoming/international_fixtures.csv`. FIFA World Cup fixtures are filtered from this file by `Competition`/`Tournament = FIFA World Cup`; broader **International matches** predictions use all rows. A separate `worldcup_fixtures.csv` is not required.
+
+International fixtures CSV format:
+
+```csv
+Date,Time,Competition,HomeTeam,AwayTeam,HomeOdds,DrawOdds,AwayOdds,OddsSource
+2030-06-13,20:00,FIFA World Cup,Spain,Brazil,,,,Unavailable
+```
+
+Odds may be unavailable for international fixtures. Leave `HomeOdds`, `DrawOdds`, and `AwayOdds` blank and use `OddsSource` such as `Unavailable`; predictions still run from Elo, weighted form, goals, H2H, and tournament-context features. If no international fixtures are present, the app reports: `No international fixtures available. Add data/upcoming/international_fixtures.csv or connect a fixture API.` The adapter in `scripts/update_international_fixtures.py` currently reads/writes this CSV safely and is structured so a real fixtures API can be added later.
 
 ## Local Ubuntu setup and workflow
 

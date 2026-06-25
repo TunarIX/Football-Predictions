@@ -275,9 +275,11 @@ def predict_match(
     home_team: str,
     away_team: str,
     implied_probs: tuple[float, float, float],
+    competition: object = "",
+    neutral: object = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
     """Return prediction table, feature row, and explanation notes for an upcoming match."""
-    features = upcoming_features(df, home_team, away_team, implied_probs)
+    features = upcoming_features(df, home_team, away_team, implied_probs, competition=competition, neutral=neutral)
     probabilities = dict.fromkeys(CLASS_LABELS, 0.0)
     for klass, probability in zip(
         model.classes_, model.predict_proba(features[FEATURE_COLUMNS])[0], strict=False

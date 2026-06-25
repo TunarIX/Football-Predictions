@@ -27,10 +27,15 @@ competitions:
   - name: FIFA World Cup
     country_or_type: International
     data_source: international_csv
+    historical_data_path: data/processed/international_matches.csv
+    upcoming_data_path: data/upcoming/international_fixtures.csv
+    competition_filter: FIFA World Cup
     football_data_code:
     match_type: international
   - name: International matches
     country_or_type: International
     data_source: international_csv
+    historical_data_path: data/processed/international_matches.csv
+    upcoming_data_path: data/upcoming/international_fixtures.csv
     football_data_code:
     match_type: international

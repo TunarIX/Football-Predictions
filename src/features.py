@@ -211,6 +211,9 @@ def _features_from_history(
     home_advantage = 0.0 if neutral_flag else DEFAULT_HOME_ADVANTAGE
     world_cup, knockout = _match_type_flags(competition)
     market = np.array(implied, dtype=float)
+    if market.shape != (3,) or np.any(~np.isfinite(market)) or np.any(market <= 0):
+        market = np.array([1 / 3, 1 / 3, 1 / 3], dtype=float)
+    market = market / market.sum()
     market_entropy = float(
         -(market * np.log(np.clip(market, 1e-9, 1))).sum() / np.log(3)
     )
@@ -286,9 +289,9 @@ def _features_from_history(
         "NeutralVenue": neutral_flag,
         "WorldCupMatch": world_cup,
         "KnockoutMatch": knockout,
-        "ImpHome": implied[0],
-        "ImpDraw": implied[1],
-        "ImpAway": implied[2],
+        "ImpHome": float(market[0]),
+        "ImpDraw": float(market[1]),
+        "ImpAway": float(market[2]),
         "MarketEntropy": market_entropy,
     }
 
@@ -412,6 +415,8 @@ def upcoming_features(
     home_team: str,
     away_team: str,
     implied_probs: tuple[float, float, float],
+    competition: object = "",
+    neutral: object = False,
 ) -> pd.DataFrame:
     """Generate prediction features from the full historical dataframe without an FTR column."""
     return pd.DataFrame(
@@ -422,6 +427,8 @@ def upcoming_features(
                 away_team,
                 implied_probs,
                 pd.Timestamp.today(),
+                neutral,
+                competition,
             )
         ]
     )
