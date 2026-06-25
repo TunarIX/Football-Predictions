@@ -12,9 +12,10 @@ Football Predictions is a football data analytics and probability estimation das
 - Calculate chronological Elo ratings for teams.
 - Add head-to-head features for recent meetings.
 - Convert decimal bookmaker odds into normalized implied probabilities.
-- Train a multi-feature baseline model that uses odds as only one input, alongside team form, venue performance, goals, H2H, and Elo.
-- Estimate home win, draw, and away win probabilities for an upcoming match.
+- Train a calibrated multi-feature model that uses odds as only one input, alongside team form, venue performance, goals, H2H, Elo, rest, neutral-site, and tournament-context features.
+- Estimate home win, draw, and away win probabilities for an upcoming match with probability calibration to reduce overconfident outputs.
 - Estimate a likely score, confidence score, and explanation notes for each prediction.
+- Highlight lightweight permutation feature importance so users can see which signals drove predictive power.
 - Find similar historical matches using engineered football features as supporting context, not just similar odds.
 
 ## Project structure
@@ -85,17 +86,31 @@ Then open the local Streamlit URL shown in your terminal.
 
 ## Model notes
 
-The baseline model is intentionally understandable and modular. It uses Random Forest classification over engineered pre-match features:
+The baseline model is intentionally understandable and modular. It uses a calibrated gradient-boosting classifier over engineered pre-match features. Every training row is built chronologically from matches that occurred before the target fixture to avoid data leakage.
 
 - last-5 and last-10 points per game;
-- last-5 and last-10 goals scored/conceded;
+- last-5 and last-10 goals scored/conceded and goal difference;
+- scored-rate, clean-sheet rate, draw tendency, and longer-term 25-match strength;
 - home-team home performance and away-team away performance;
+- rest days and team match-count experience;
+- neutral venue, World Cup, and knockout/high-pressure tournament context for international datasets;
 - recent head-to-head history;
-- chronological Elo ratings;
-- bookmaker implied probabilities;
-- similar historical matches as context.
+- chronological Elo ratings with neutral-site home advantage removed;
+- bookmaker implied probabilities and market entropy;
+- similar historical matches and permutation feature importance as context.
 
 Odds are **not** the only driver of predictions. They are treated as market context alongside football performance features.
+
+
+## Accuracy-focused improvements
+
+This project deliberately avoids adding features that require post-match information. The highest-impact current improvements are:
+
+1. **Leak-free football context**: features are still generated from prior matches only, now including goal difference, scoring reliability, clean sheets, draw tendency, rest days, experience, neutral venues, and tournament flags. Expected impact: better separation between teams with similar points totals but different underlying scoring profiles, and more realistic treatment of international matches played at neutral sites.
+2. **Calibrated probabilities**: the model now calibrates the classifier output before presenting probabilities. Expected impact: fewer overconfident 70–90% predictions when the evidence is weak, improving probability reliability rather than only top-pick accuracy.
+3. **Stronger match model**: gradient boosting replaces the previous random forest baseline because it can capture non-linear football interactions such as Elo strength plus market odds plus venue effects while staying lightweight. Expected impact: better use of interacting signals without adding heavy dependencies.
+4. **Confidence scoring**: confidence now considers probability margin, entropy, team history depth, and agreement with the market. Expected impact: low-evidence international fixtures and evenly matched games receive lower confidence even when one class is marginally highest.
+5. **Feature importance analysis**: permutation importance reports which features reduce log-loss most on recent training rows. Expected impact: users can identify whether the model is learning from meaningful football signals or mostly copying odds.
 
 ## Responsible framing
 

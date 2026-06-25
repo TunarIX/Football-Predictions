@@ -1,35 +1,93 @@
 """Data cleaning utilities for football match CSV files."""
+
 from __future__ import annotations
 
 import pandas as pd
 
 EXPECTED_COLUMNS = [
-    "Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR", "HTHG", "HTAG", "HTR",
-    "B365H", "B365D", "B365A", "BWH", "BWD", "BWA", "IWH", "IWD", "IWA",
-    "PSH", "PSD", "PSA", "MaxH", "MaxD", "MaxA", "AvgH", "AvgD", "AvgA",
+    "Date",
+    "HomeTeam",
+    "AwayTeam",
+    "FTHG",
+    "FTAG",
+    "FTR",
+    "HTHG",
+    "HTAG",
+    "HTR",
+    "B365H",
+    "B365D",
+    "B365A",
+    "BWH",
+    "BWD",
+    "BWA",
+    "IWH",
+    "IWD",
+    "IWA",
+    "PSH",
+    "PSD",
+    "PSA",
+    "MaxH",
+    "MaxD",
+    "MaxA",
+    "AvgH",
+    "AvgD",
+    "AvgA",
 ]
 
 REQUIRED_COLUMNS = ["Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR"]
-ODDS_COLUMNS = [c for c in EXPECTED_COLUMNS if c not in {"Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR", "HTHG", "HTAG", "HTR"}]
+ODDS_COLUMNS = [
+    c
+    for c in EXPECTED_COLUMNS
+    if c
+    not in {
+        "Date",
+        "HomeTeam",
+        "AwayTeam",
+        "FTHG",
+        "FTAG",
+        "FTR",
+        "HTHG",
+        "HTAG",
+        "HTR",
+    }
+]
 NUMERIC_COLUMNS = ["FTHG", "FTAG", "HTHG", "HTAG", *ODDS_COLUMNS]
 RESULTS = {"H", "D", "A"}
 
 INTERNATIONAL_ALIASES = {
-    "date": "Date", "home_team": "HomeTeam", "hometeam": "HomeTeam", "home": "HomeTeam",
-    "away_team": "AwayTeam", "awayteam": "AwayTeam", "away": "AwayTeam",
-    "home_score": "FTHG", "homegoals": "FTHG", "fthg": "FTHG",
-    "away_score": "FTAG", "awaygoals": "FTAG", "ftag": "FTAG",
-    "tournament": "Competition", "competition": "Competition",
-    "neutral": "Neutral", "country": "Country",
-    "home_odds": "AvgH", "draw_odds": "AvgD", "away_odds": "AvgA",
-    "avgh": "AvgH", "avgd": "AvgD", "avga": "AvgA",
+    "date": "Date",
+    "home_team": "HomeTeam",
+    "hometeam": "HomeTeam",
+    "home": "HomeTeam",
+    "away_team": "AwayTeam",
+    "awayteam": "AwayTeam",
+    "away": "AwayTeam",
+    "home_score": "FTHG",
+    "homegoals": "FTHG",
+    "fthg": "FTHG",
+    "away_score": "FTAG",
+    "awaygoals": "FTAG",
+    "ftag": "FTAG",
+    "tournament": "Competition",
+    "competition": "Competition",
+    "neutral": "Neutral",
+    "country": "Country",
+    "home_odds": "AvgH",
+    "draw_odds": "AvgD",
+    "away_odds": "AvgA",
+    "avgh": "AvgH",
+    "avgd": "AvgD",
+    "avga": "AvgA",
 }
 
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Trim column names and map case-insensitive football-data column names to canonical names."""
     canonical = {col.lower(): col for col in EXPECTED_COLUMNS}
-    renamed = {col: canonical.get(str(col).strip().lower(), str(col).strip()) for col in df.columns}
+    renamed = {
+        col: canonical.get(str(col).strip().lower(), str(col).strip())
+        for col in df.columns
+    }
     return df.rename(columns=renamed)
 
 
@@ -38,7 +96,9 @@ def parse_dates(series: pd.Series) -> pd.Series:
     parsed = pd.to_datetime(series, errors="coerce", dayfirst=True)
     missing = parsed.isna()
     if missing.any():
-        parsed.loc[missing] = pd.to_datetime(series.loc[missing], errors="coerce", dayfirst=False)
+        parsed.loc[missing] = pd.to_datetime(
+            series.loc[missing], errors="coerce", dayfirst=False
+        )
     return parsed
 
 
@@ -46,7 +106,16 @@ def _finish_cleaning(data: pd.DataFrame) -> pd.DataFrame:
     for col in EXPECTED_COLUMNS:
         if col not in data.columns:
             data[col] = pd.NA
-    data = data[[*EXPECTED_COLUMNS, *[c for c in ["Competition", "Neutral", "Country", "SourceFile"] if c in data.columns]]].copy()
+    data = data[
+        [
+            *EXPECTED_COLUMNS,
+            *[
+                c
+                for c in ["Competition", "Neutral", "Country", "SourceFile"]
+                if c in data.columns
+            ],
+        ]
+    ].copy()
     data["Date"] = parse_dates(data["Date"])
     for col in NUMERIC_COLUMNS:
         data[col] = pd.to_numeric(data[col], errors="coerce")
@@ -68,7 +137,10 @@ def clean_match_data(df: pd.DataFrame) -> pd.DataFrame:
 def clean_international_match_data(df: pd.DataFrame) -> pd.DataFrame:
     """Clean national-team CSVs with dates, teams, scores, tournaments, and optional odds."""
     data = df.copy()
-    renamed = {col: INTERNATIONAL_ALIASES.get(str(col).strip().lower(), str(col).strip()) for col in data.columns}
+    renamed = {
+        col: INTERNATIONAL_ALIASES.get(str(col).strip().lower(), str(col).strip())
+        for col in data.columns
+    }
     data = data.rename(columns=renamed)
     if "FTR" not in data.columns and {"FTHG", "FTAG"}.issubset(data.columns):
         home_goals = pd.to_numeric(data["FTHG"], errors="coerce")

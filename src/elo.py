@@ -1,4 +1,5 @@
 """Chronological Elo ratings for football teams."""
+
 from __future__ import annotations
 
 import pandas as pd
@@ -16,7 +17,9 @@ def actual_scores(ftr: str) -> tuple[float, float]:
     return 0.5, 0.5
 
 
-def elo_before_matches(df: pd.DataFrame, base: float = 1500, k: float = 24, home_advantage: float = 55) -> pd.DataFrame:
+def elo_before_matches(
+    df: pd.DataFrame, base: float = 1500, k: float = 24, home_advantage: float = 55
+) -> pd.DataFrame:
     """Attach pre-match Elo ratings and update ratings after each result."""
     ratings: dict[str, float] = {}
     rows = []
@@ -24,7 +27,13 @@ def elo_before_matches(df: pd.DataFrame, base: float = 1500, k: float = 24, home
         home, away = match["HomeTeam"], match["AwayTeam"]
         home_elo = ratings.get(home, base)
         away_elo = ratings.get(away, base)
-        rows.append({"HomeElo": home_elo, "AwayElo": away_elo, "EloDiff": home_elo + home_advantage - away_elo})
+        rows.append(
+            {
+                "HomeElo": home_elo,
+                "AwayElo": away_elo,
+                "EloDiff": home_elo + home_advantage - away_elo,
+            }
+        )
         exp_home = expected_score(home_elo + home_advantage, away_elo)
         score_home, score_away = actual_scores(match["FTR"])
         ratings[home] = home_elo + k * (score_home - exp_home)
@@ -33,7 +42,9 @@ def elo_before_matches(df: pd.DataFrame, base: float = 1500, k: float = 24, home
     return pd.concat([enriched, pd.DataFrame(rows)], axis=1)
 
 
-def current_elo_ratings(df: pd.DataFrame, base: float = 1500, k: float = 24, home_advantage: float = 55) -> dict[str, float]:
+def current_elo_ratings(
+    df: pd.DataFrame, base: float = 1500, k: float = 24, home_advantage: float = 55
+) -> dict[str, float]:
     ratings: dict[str, float] = {}
     for _, match in df.sort_values("Date").iterrows():
         home, away = match["HomeTeam"], match["AwayTeam"]

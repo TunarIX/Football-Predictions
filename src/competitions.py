@@ -1,4 +1,5 @@
 """Competition configuration loading."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -36,6 +37,7 @@ def load_competitions(path: str | Path = DEFAULT_CONFIG) -> list[dict]:
     text = config_path.read_text(encoding="utf-8")
     try:
         import yaml
+
         payload = yaml.safe_load(text) or {}
         return payload.get("competitions", [])
     except ImportError:
