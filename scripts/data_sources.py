@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 import sys
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import pandas as pd
+from urllib.parse import urlencode
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -29,8 +32,128 @@ UPCOMING_COLUMNS = [
     "HomeOdds",
     "DrawOdds",
     "AwayOdds",
+    "Over25Odds",
+    "Under25Odds",
     "OddsSource",
 ]
+
+
+
+def load_dotenv(path: str | Path = ".env") -> None:
+    """Load simple KEY=VALUE pairs from .env without overriding the shell."""
+    env_path = Path(path)
+    if not env_path.exists():
+        return
+    for line in env_path.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def _decimal(value: object) -> float | None:
+    number = pd.to_numeric(value, errors="coerce")
+    if pd.isna(number) or float(number) <= 1:
+        return None
+    return float(number)
+
+
+def _outcome_price(outcomes: list[dict], name: str | None = None, point: float | None = None) -> float | None:
+    for outcome in outcomes or []:
+        if name is not None and str(outcome.get("name", "")).casefold() != name.casefold():
+            continue
+        if point is not None:
+            outcome_point = pd.to_numeric(outcome.get("point"), errors="coerce")
+            if pd.isna(outcome_point) or float(outcome_point) != point:
+                continue
+        price = _decimal(outcome.get("price"))
+        if price is not None:
+            return price
+    return None
+
+
+def _split_time(value: object) -> tuple[str | None, str]:
+    parsed = pd.to_datetime(value, errors="coerce", utc=True)
+    if pd.isna(parsed):
+        return None, ""
+    return parsed.strftime("%Y-%m-%d"), parsed.strftime("%H:%M")
+
+
+def odds_api_missing_key_message() -> str:
+    return "Set ODDS_API_KEY in .env or use manual CSV fallback."
+
+
+def odds_api_events(international: bool = False, api_key: str | None = None, regions: str = "us,uk,eu", timeout: int = 30) -> tuple[pd.DataFrame, list[str]]:
+    """Fetch upcoming soccer fixtures and h2h/totals odds from The Odds API."""
+    load_dotenv()
+    key = api_key or os.getenv("ODDS_API_KEY", "").strip()
+    if not key:
+        return pd.DataFrame(columns=UPCOMING_COLUMNS), [odds_api_missing_key_message()]
+    params = urlencode({"apiKey": key, "regions": regions, "markets": "h2h,totals", "oddsFormat": "decimal"})
+    url = f"https://api.the-odds-api.com/v4/sports/soccer/odds/?{params}"
+    try:
+        payload = download_url(url, timeout=timeout)
+        events = json.loads(payload.decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
+        return pd.DataFrame(columns=UPCOMING_COLUMNS), [f"The Odds API request failed: {exc}"]
+    rows = []
+    for event in events if isinstance(events, list) else []:
+        sport_title = str(event.get("sport_title") or event.get("sport_key") or "Soccer")
+        sport_key = str(event.get("sport_key") or "")
+        looks_international = any(token in f"{sport_title} {sport_key}".lower() for token in ["international", "world cup", "uefa nations", "friendlies"])
+        if international != looks_international:
+            continue
+        date, time = _split_time(event.get("commence_time"))
+        if not date:
+            continue
+        row = {"Date": date, "Time": time, "Competition": sport_title, "HomeTeam": event.get("home_team"), "AwayTeam": event.get("away_team"), "HomeOdds": None, "DrawOdds": None, "AwayOdds": None, "Over25Odds": None, "Under25Odds": None, "OddsSource": "Unavailable"}
+        for bookmaker in event.get("bookmakers") or []:
+            source = bookmaker.get("title") or bookmaker.get("key") or "The Odds API"
+            for market in bookmaker.get("markets") or []:
+                key_name = market.get("key")
+                outcomes = market.get("outcomes") or []
+                if key_name == "h2h" and row["HomeOdds"] is None:
+                    row["HomeOdds"] = _outcome_price(outcomes, event.get("home_team"))
+                    row["AwayOdds"] = _outcome_price(outcomes, event.get("away_team"))
+                    row["DrawOdds"] = _outcome_price(outcomes, "Draw")
+                    if row["HomeOdds"] and row["AwayOdds"]:
+                        row["OddsSource"] = f"The Odds API: {source}"
+                elif key_name == "totals" and row["Over25Odds"] is None:
+                    row["Over25Odds"] = _outcome_price(outcomes, "Over", 2.5)
+                    row["Under25Odds"] = _outcome_price(outcomes, "Under", 2.5)
+            if row["HomeOdds"] is not None and row["Over25Odds"] is not None:
+                break
+        rows.append(row)
+    return normalize_upcoming_frame(pd.DataFrame(rows)), [f"downloaded {len(rows):,} fixtures from The Odds API"]
+
+
+def api_football_events(international: bool = False, api_key: str | None = None, timeout: int = 30) -> tuple[pd.DataFrame, list[str]]:
+    """Optional API-Football future fallback; fixtures-only when configured."""
+    load_dotenv()
+    key = api_key or os.getenv("API_FOOTBALL_KEY", "").strip()
+    if not key:
+        return pd.DataFrame(columns=UPCOMING_COLUMNS), []
+    today = pd.Timestamp.utcnow().strftime("%Y-%m-%d")
+    params = urlencode({"from": today, "to": (pd.Timestamp.utcnow() + pd.Timedelta(days=14)).strftime("%Y-%m-%d")})
+    request = Request(f"https://v3.football.api-sports.io/fixtures?{params}", headers={"x-apisports-key": key, "User-Agent": USER_AGENT})
+    try:
+        with urlopen(request, timeout=timeout) as response:  # nosec - configured public API
+            data = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
+        return pd.DataFrame(columns=UPCOMING_COLUMNS), [f"API-Football request failed: {exc}"]
+    rows = []
+    for item in data.get("response", []) if isinstance(data, dict) else []:
+        league = item.get("league", {})
+        country = str(league.get("country", ""))
+        league_name = str(league.get("name", "Soccer"))
+        is_intl = country.casefold() == "world" or "international" in league_name.casefold()
+        if international != is_intl:
+            continue
+        date, time = _split_time(item.get("fixture", {}).get("date"))
+        teams = item.get("teams", {})
+        rows.append({"Date": date, "Time": time, "Competition": league_name, "HomeTeam": teams.get("home", {}).get("name"), "AwayTeam": teams.get("away", {}).get("name"), "OddsSource": "API-Football fixtures (odds unavailable)"})
+    return normalize_upcoming_frame(pd.DataFrame(rows)), [f"downloaded {len(rows):,} fixtures from API-Football"]
 
 
 def configured_football_data_leagues(config_path: str | Path = "config/competitions.yml") -> list[dict]:
@@ -98,6 +221,10 @@ def normalize_upcoming_frame(df: pd.DataFrame, competition: str | None = None) -
         "draw_odds": "DrawOdds",
         "awayodds": "AwayOdds",
         "away_odds": "AwayOdds",
+        "over25odds": "Over25Odds",
+        "over_25_odds": "Over25Odds",
+        "under25odds": "Under25Odds",
+        "under_25_odds": "Under25Odds",
         "oddssource": "OddsSource",
         "odds_source": "OddsSource",
     }
@@ -121,7 +248,7 @@ def normalize_upcoming_frame(df: pd.DataFrame, competition: str | None = None) -
         data.loc[missing_dates, "Date"] = pd.to_datetime(
             data.loc[missing_dates, "Date"], errors="coerce", dayfirst=True
         )
-    for col in ["HomeOdds", "DrawOdds", "AwayOdds"]:
+    for col in ["HomeOdds", "DrawOdds", "AwayOdds", "Over25Odds", "Under25Odds"]:
         data[col] = pd.to_numeric(data[col], errors="coerce")
     data["OddsSource"] = data["OddsSource"].fillna("Unavailable")
     keep = data.dropna(subset=["Date", "HomeTeam", "AwayTeam"]).copy()

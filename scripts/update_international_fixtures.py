@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.data_sources import UPCOMING_COLUMNS, USER_AGENT, normalize_upcoming_frame
+from scripts.data_sources import UPCOMING_COLUMNS, USER_AGENT, api_football_events, normalize_upcoming_frame, odds_api_events
 from src.data_loader import safe_read_csv
 from src.fixtures import INTERNATIONAL_UPCOMING, write_international_fixtures
 from src.match_context import is_international_competition_name, tournament_category
@@ -95,6 +95,16 @@ def _normalise_source_frame(frame: pd.DataFrame) -> pd.DataFrame:
 def download_international_fixtures() -> tuple[pd.DataFrame, list[str]]:
     frames: list[pd.DataFrame] = []
     messages: list[str] = []
+    api_frame, api_messages = odds_api_events(international=True)
+    messages.extend(api_messages)
+    if not api_frame.empty:
+        frames.append(api_frame)
+    if api_frame.empty:
+        fallback_frame, fallback_messages = api_football_events(international=True)
+        messages.extend(fallback_messages)
+        if not fallback_frame.empty:
+            frames.append(fallback_frame)
+
     for url in _source_urls():
         try:
             frame = _normalise_source_frame(_read_payload(_download(url), url))

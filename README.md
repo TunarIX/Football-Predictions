@@ -126,11 +126,13 @@ Run:
 python scripts/update_upcoming_fixtures.py
 ```
 
-The script attempts to download football-data.co.uk upcoming fixtures CSV data and writes the normalized output to `data/upcoming/upcoming_fixtures.csv` with these columns:
+The script uses an API-first fixture pipeline. The Odds API is the primary source for upcoming soccer fixtures and bookmaker odds, including `h2h` and `totals` markets. Set `ODDS_API_KEY` in `.env` before running it. Optional API-Football fixture support is available through `API_FOOTBALL_KEY` as a fallback/future provider when The Odds API returns no usable fixtures.
 
-`Date`, `Time`, `Competition`, `HomeTeam`, `AwayTeam`, `HomeOdds`, `DrawOdds`, `AwayOdds`, `OddsSource`.
+Club fixtures are written to `data/upcoming/upcoming_fixtures.csv`; international fixtures are written by `scripts/update_international_fixtures.py` to `data/upcoming/international_fixtures.csv`. Both outputs use these columns:
 
-football-data.co.uk fixture odds are not always instantly available for every competition or fixture. When odds are present, the normalizer prefers market-average odds (`AvgH`, `AvgD`, `AvgA`) and otherwise uses Bet365 (`B365H`, `B365D`, `B365A`). The `OddsSource` column is shown in the dashboard so users can see whether a row used Market Avg, Bet365, or no available odds. The downloader is intentionally polite and limited to public CSV endpoints; it does not aggressively scrape pages.
+`Date`, `Time`, `Competition`, `HomeTeam`, `AwayTeam`, `HomeOdds`, `DrawOdds`, `AwayOdds`, `Over25Odds`, `Under25Odds`, `OddsSource`.
+
+The `h2h` market is normalized to `HomeOdds`, `DrawOdds`, and `AwayOdds`. If a `totals` market has a 2.5-goals line, it is normalized to `Over25Odds` and `Under25Odds`. Missing markets or bookmaker prices are left blank and do not crash the app. The project never scrapes bookmaker websites directly. If the primary key is missing, scripts and the app show: `Set ODDS_API_KEY in .env or use manual CSV fallback.`
 
 ### Manual upcoming-fixture fallback
 
@@ -145,11 +147,11 @@ In Streamlit, use the **Next 48 Hours Predictions** page and upload a manual upc
 Manual CSV headers must be exactly:
 
 ```csv
-Date,Time,Competition,HomeTeam,AwayTeam,HomeOdds,DrawOdds,AwayOdds,OddsSource
-2026-06-25,20:00,Example League,Home FC,Away FC,2.10,3.30,3.50,Manual
+Date,Time,Competition,HomeTeam,AwayTeam,HomeOdds,DrawOdds,AwayOdds,Over25Odds,Under25Odds,OddsSource
+2026-06-25,20:00,Example League,Home FC,Away FC,2.10,3.30,3.50,1.90,1.95,Manual
 ```
 
-If odds are unavailable, leave `HomeOdds`, `DrawOdds`, and `AwayOdds` blank and set `OddsSource` to `Unavailable`. The local scripts and Streamlit app will keep valid headers even when no automatic fixtures are available, so an empty fixture or prediction file should not crash the app.
+If odds are unavailable, leave `HomeOdds`, `DrawOdds`, `AwayOdds`, `Over25Odds`, and `Under25Odds` blank and set `OddsSource` to `Unavailable`. The local scripts and Streamlit app will keep valid headers even when no automatic fixtures are available, so an empty fixture or prediction file should not crash the app.
 
 ### Next 48 hours predictions
 
@@ -196,11 +198,11 @@ All national-team upcoming fixtures share one file: `data/upcoming/international
 International fixtures CSV format:
 
 ```csv
-Date,Time,Competition,HomeTeam,AwayTeam,HomeOdds,DrawOdds,AwayOdds,OddsSource
-2030-06-13,20:00,FIFA World Cup,Spain,Brazil,,,,Unavailable
+Date,Time,Competition,HomeTeam,AwayTeam,HomeOdds,DrawOdds,AwayOdds,Over25Odds,Under25Odds,OddsSource
+2030-06-13,20:00,FIFA World Cup,Spain,Brazil,,,,,,Unavailable
 ```
 
-Odds may be unavailable for international fixtures. Leave `HomeOdds`, `DrawOdds`, and `AwayOdds` blank and use `OddsSource` such as `Unavailable`; predictions still run from Elo, weighted form, goals, H2H, and tournament-context features. If no international fixtures are present, the app reports: `No international fixtures available. Add data/upcoming/international_fixtures.csv or connect a fixture API.` The adapter in `scripts/update_international_fixtures.py` currently reads/writes this CSV safely and is structured so a real fixtures API can be added later.
+Odds may be unavailable for international fixtures. Leave `HomeOdds`, `DrawOdds`, and `AwayOdds` blank and use `OddsSource` such as `Unavailable`; predictions still run from Elo, weighted form, goals, H2H, and tournament-context features. If no international fixtures are present, the app reports: `No international fixtures available. Add data/upcoming/international_fixtures.csv or connect a fixture API.` `scripts/update_international_fixtures.py` now tries The Odds API first, optional API-Football fixture fallback second, and public international fixture feeds/manual CSVs after that.
 
 ## Local Ubuntu setup and workflow
 

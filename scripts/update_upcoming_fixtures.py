@@ -1,4 +1,4 @@
-"""Download football-data.co.uk upcoming fixtures when available, with manual fallback."""
+"""Download API-based upcoming club fixtures and odds, with manual fallback."""
 
 from __future__ import annotations
 
@@ -16,8 +16,10 @@ from src.data_loader import safe_read_csv
 from scripts.data_sources import (
     BASE_URL,
     UPCOMING_COLUMNS,
+    api_football_events,
     configured_football_data_leagues,
     normalize_upcoming_frame,
+    odds_api_events,
     read_csv_url,
 )
 
@@ -47,8 +49,16 @@ def _football_data_fixtures() -> pd.DataFrame:
 
 def update_upcoming_fixtures(manual_csv: str | None = None, output: Path = Path("data/upcoming/upcoming_fixtures.csv")) -> pd.DataFrame:
     output.parent.mkdir(parents=True, exist_ok=True)
-    automatic = _football_data_fixtures()
+    automatic, messages = odds_api_events(international=False)
+    for msg in messages:
+        print(msg)
     frames = [automatic] if not automatic.empty else []
+    if automatic.empty:
+        fallback, fallback_messages = api_football_events(international=False)
+        for msg in fallback_messages:
+            print(msg)
+        if not fallback.empty:
+            frames.append(fallback)
     if manual_csv:
         manual = safe_read_csv(manual_csv, UPCOMING_COLUMNS)
         frames.append(normalize_upcoming_frame(manual))
@@ -59,7 +69,7 @@ def update_upcoming_fixtures(manual_csv: str | None = None, output: Path = Path(
     result.to_csv(output, index=False)
     if result.empty:
         print(
-            "No automatic or manual upcoming fixtures were available; "
+            "No API or manual upcoming fixtures were available; "
             f"created {output} with valid headers for manual fallback."
         )
     print(f"wrote {len(result):,} rows to {output}")
