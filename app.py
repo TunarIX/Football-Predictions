@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+import sys
 
 import pandas as pd
 import streamlit as st
@@ -78,7 +79,7 @@ with st.sidebar:
     form_window = st.slider("Recent form window", 3, 10, 5)
     page = st.radio(
         "Navigation",
-        ["Overview", "Team statistics", "Odds analysis", "Upcoming prediction", "Next 48 Hours Predictions"],
+        ["Overview", "Team statistics", "Odds analysis", "Upcoming prediction", "Backtesting", "Next 48 Hours Predictions"],
         index=0,
     )
 
@@ -280,6 +281,56 @@ elif page == "Upcoming prediction":
     st.caption(
         f"Training rows used by calibrated model: {len(training_data):,}. This is an analytical probability estimate, not financial advice."
     )
+
+elif page == "Backtesting":
+    st.subheader("Backtesting")
+    st.write("Run a chronological historical backtest on `data/processed/historical_matches.csv`. The split is date-based only because football data is time-dependent.")
+    c1, c2 = st.columns(2)
+    train_until = c1.date_input("Train until", value=pd.Timestamp("2024-06-30").date())
+    test_from = c2.date_input("Test from", value=pd.Timestamp("2024-07-01").date())
+    if st.button("Run backtest on saved historical data"):
+        result = subprocess.run(
+            [sys.executable, "scripts/backtest_model.py", "--train-until", str(train_until), "--test-from", str(test_from)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            st.success("Backtest completed. Reports saved in data/reports/.")
+            st.code(result.stdout[-4000:])
+        else:
+            st.error("Backtest failed.")
+            st.code(result.stderr or result.stdout)
+    reports_dir = Path("data/reports")
+    metrics_path = reports_dir / "backtest_metrics.json"
+    predictions_path = reports_dir / "backtest_predictions.csv"
+    if metrics_path.exists():
+        import json
+        metrics = json.loads(metrics_path.read_text())
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Accuracy", f"{metrics.get('accuracy', 0):.1%}")
+        m2.metric("Log loss", f"{metrics.get('log_loss', 0):.3f}")
+        m3.metric("Brier score", f"{metrics.get('brier_score', 0):.3f}")
+        m4.metric("Bookmaker favorite accuracy", f"{metrics.get('bookmaker_favorite_accuracy', 0):.1%}")
+        st.caption("Lower log loss and Brier score indicate better probabilistic estimates. Accuracy only checks the top pick and does not guarantee future outcomes.")
+    calibration_path = reports_dir / "backtest_calibration.csv"
+    if calibration_path.exists():
+        st.write("Calibration table")
+        calibration = pd.read_csv(calibration_path)
+        st.dataframe(calibration.style.format({"AveragePredictedProbability": "{:.1%}", "ActualFrequency": "{:.1%}"}), use_container_width=True, hide_index=True)
+    matrix_path = reports_dir / "backtest_confusion_matrix.csv"
+    if matrix_path.exists():
+        st.write("Confusion matrix")
+        st.dataframe(pd.read_csv(matrix_path, index_col=0), use_container_width=True)
+    comparison_path = reports_dir / "backtest_probability_comparison.csv"
+    if comparison_path.exists():
+        st.write("Model vs bookmaker probability comparison")
+        comparison = pd.read_csv(comparison_path)
+        st.dataframe(comparison.style.format({"AverageModelProbability": "{:.1%}", "AverageBookmakerProbability": "{:.1%}"}), use_container_width=True, hide_index=True)
+    if predictions_path.exists():
+        predictions = pd.read_csv(predictions_path, parse_dates=["Date"])
+        failed = predictions[~predictions["CorrectModel"]].sort_values("Date", ascending=False)
+        st.write("Recent failed model predictions")
+        st.dataframe(failed.head(25), use_container_width=True, hide_index=True)
 
 else:
     st.subheader("Next 48 Hours Predictions")

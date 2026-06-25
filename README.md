@@ -45,6 +45,7 @@ data/
   processed/
   upcoming/
   predictions/
+  reports/
 requirements.txt
 README.md
 ```
@@ -85,6 +86,37 @@ python scripts/update_historical_data.py
 ```
 
 The script reads `config/competitions.yml`, downloads configured football-data.co.uk league CSVs from the public season folders, stores the raw CSVs in `data/raw/`, cleans them with the same app preprocessing, removes duplicate matches, and writes `data/processed/historical_matches.csv`. Historical odds remain from the football-data.co.uk source family. Per football-data.co.uk notes, those odds are collected from Betbrain, Oddsportal, and individual bookmakers. The app does not silently mix in unrelated odds feeds.
+
+
+### Historical backtesting and validation
+
+Run a real-data chronological backtest after downloading historical data:
+
+```bash
+python scripts/backtest_model.py --train-until 2024-06-30 --test-from 2024-07-01
+```
+
+The backtest loads `data/processed/historical_matches.csv`, sorts matches by `Date`, trains only on rows on or before `--train-until`, and tests only on rows on or after `--test-from`. It intentionally avoids random train/test splits because football results are time-dependent and random splits can leak future team strength into past predictions.
+
+Reports are written to `data/reports/`:
+
+- `backtest_predictions.csv` contains match-level model probabilities, bookmaker implied probabilities, model/bookmaker picks, and correctness flags.
+- `backtest_metrics.json` contains accuracy, log loss, Brier score, bookmaker favorite accuracy, and the model-vs-bookmaker accuracy edge.
+- `backtest_calibration.csv` groups predictions by confidence bucket so predicted probabilities can be compared with observed hit rates.
+- `backtest_confusion_matrix.csv` shows where the model confused home wins, draws, and away wins.
+- `backtest_probability_comparison.csv` compares average model probabilities with average bookmaker-implied probabilities.
+
+The Streamlit **Backtesting** page can run the same script against saved historical data and displays metrics, calibration, confusion matrix, model-vs-bookmaker probability comparison, and recent failed predictions.
+
+Interpretation guide:
+
+- **Accuracy** is the share of matches where the highest-probability pick matched `FTR`; it is easy to understand but ignores how confident the probabilities were.
+- **Log loss** rewards assigning high probability to the actual outcome and strongly penalizes overconfident misses; lower is better.
+- **Brier score** measures squared probability error across home/draw/away outcomes; lower is better and it is useful for probability quality.
+- **Calibration** compares confidence buckets with actual correctness rates. If a 50–60% bucket wins around 50–60% of the time, those estimates are better calibrated.
+- **Bookmaker baseline** converts decimal odds to normalized implied probabilities and uses the market favorite as a simple baseline pick. Model accuracy should be interpreted against this baseline, not as a guarantee of future outcomes.
+
+Backtesting is for probability estimation and analytics only. It does not prove that future football outcomes can be guaranteed.
 
 ### Upcoming fixtures and odds
 
