@@ -71,7 +71,8 @@ with st.sidebar:
             st.error("Historical update failed.")
             st.code(result.stderr or result.stdout)
     if st.button("Update upcoming fixtures"):
-        result = subprocess.run(["python", "scripts/update_upcoming_fixtures.py"], capture_output=True, text=True)
+        command = ["python", "scripts/update_international_fixtures.py"] if is_international_competition(selected_competition) else ["python", "scripts/update_upcoming_fixtures.py"]
+        result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode == 0:
             st.success("Upcoming fixtures updated.")
             st.code(result.stdout[-2000:])
@@ -200,13 +201,13 @@ elif page == "Upcoming prediction":
     st.write(
         "Predictions combine leak-free recent form, goal difference, scoring reliability, venue/rest effects, neutral-site and World Cup context, Elo ratings, calibrated bookmaker context, and similar historical matches."
     )
-    model, training_data = train_baseline_model(data)
+    model, training_data = train_baseline_model(data, selected_competition)
     if not teams:
         st.warning("No teams are available in the loaded dataset. Please update historical data or upload CSV files manually.")
         st.stop()
     if model is None:
         st.warning(
-            "At least 30 feature-ready historical matches with valid odds are needed to train the multi-feature baseline model."
+            "At least 30 feature-ready historical matches are needed to train the multi-feature baseline model. Odds are optional; Elo/form/goals/H2H/tournament context still run without them."
         )
         st.dataframe(training_data, use_container_width=True)
         st.stop()
@@ -229,7 +230,7 @@ elif page == "Upcoming prediction":
     )
     implied = odds_to_probabilities(home_odds, draw_odds, away_odds)
     prediction, feature_row, explanation = predict_match(
-        model, data, home_team, away_team, implied
+        model, data, home_team, away_team, implied, competition=selected_competition
     )
     likely = prediction.loc[prediction["Model probability"].idxmax(), "Outcome"]
     st.metric("Most likely result", likely)
@@ -298,7 +299,7 @@ elif page == "Upcoming prediction":
         use_container_width=True,
     )
     st.caption(
-        f"Training rows used by calibrated model: {len(training_data):,}. This is an analytical probability estimate, not financial advice."
+        f"Training data scope: {'international/national-team only' if is_international_competition(selected_competition) else 'club competition only'} · historical feature rows used: {len(training_data):,} · odds available: {bool(pd.notna([home_odds, draw_odds, away_odds]).all())}. This is an analytical probability estimate, not financial advice."
     )
 
 elif page == "Backtesting":

@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from .elo import DEFAULT_HOME_ADVANTAGE, current_elo_ratings
+from .match_context import CompetitionType, TournamentCategory, competition_type, tournament_category
 
 RESULT_POINTS = {"W": 3, "D": 1, "L": 0}
 
@@ -210,6 +211,8 @@ def _features_from_history(
     neutral_flag = float(_as_bool(neutral))
     home_advantage = 0.0 if neutral_flag else DEFAULT_HOME_ADVANTAGE
     world_cup, knockout = _match_type_flags(competition)
+    comp_type = competition_type(competition)
+    category = tournament_category(competition)
     market = np.array(implied, dtype=float)
     if market.shape != (3,) or np.any(~np.isfinite(market)) or np.any(market <= 0):
         market = np.array([1 / 3, 1 / 3, 1 / 3], dtype=float)
@@ -289,6 +292,14 @@ def _features_from_history(
         "NeutralVenue": neutral_flag,
         "WorldCupMatch": world_cup,
         "KnockoutMatch": knockout,
+        "ClubMatch": float(comp_type == CompetitionType.CLUB.value),
+        "InternationalMatch": float(comp_type == CompetitionType.INTERNATIONAL.value),
+        "TournamentWorldCup": float(category == TournamentCategory.WORLD_CUP.value),
+        "TournamentContinental": float(category == TournamentCategory.CONTINENTAL.value),
+        "TournamentQualifier": float(category == TournamentCategory.QUALIFIER.value),
+        "TournamentNationsLeague": float(category == TournamentCategory.NATIONS_LEAGUE.value),
+        "TournamentFriendly": float(category == TournamentCategory.FRIENDLY.value),
+        "TournamentOther": float(category == TournamentCategory.OTHER.value),
         "ImpHome": float(market[0]),
         "ImpDraw": float(market[1]),
         "ImpAway": float(market[2]),
@@ -368,6 +379,14 @@ def build_match_features(df: pd.DataFrame) -> pd.DataFrame:
         "NeutralVenue",
         "WorldCupMatch",
         "KnockoutMatch",
+        "ClubMatch",
+        "InternationalMatch",
+        "TournamentWorldCup",
+        "TournamentContinental",
+        "TournamentQualifier",
+        "TournamentNationsLeague",
+        "TournamentFriendly",
+        "TournamentOther",
         "ImpHome",
         "ImpDraw",
         "ImpAway",
@@ -385,6 +404,10 @@ def build_match_features(df: pd.DataFrame) -> pd.DataFrame:
                     "HomeTeam": match["HomeTeam"],
                     "AwayTeam": match["AwayTeam"],
                     "FTR": match["FTR"],
+                    "Competition": match.get("Competition", ""),
+                    "CompetitionType": match.get("CompetitionType", competition_type(match.get("Competition", ""))),
+                    "MatchType": match.get("MatchType", match.get("CompetitionType", competition_type(match.get("Competition", "")))),
+                    "TournamentCategory": match.get("TournamentCategory", tournament_category(match.get("Competition", ""))),
                     **_features_from_history(
                         hist,
                         match["HomeTeam"],
@@ -404,7 +427,7 @@ def build_match_features(df: pd.DataFrame) -> pd.DataFrame:
 
     if not rows:
         return pd.DataFrame(
-            columns=["Date", "HomeTeam", "AwayTeam", "FTR", *feature_columns]
+            columns=["Date", "HomeTeam", "AwayTeam", "FTR", "Competition", "CompetitionType", "MatchType", "TournamentCategory", *feature_columns]
         )
 
     return pd.DataFrame(rows).dropna(subset=feature_columns).reset_index(drop=True)

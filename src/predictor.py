@@ -14,6 +14,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from .features import build_match_features, upcoming_features
+from .match_context import TournamentCategory, international_training_weight, tournament_category
 
 FEATURE_COLUMNS = [
     "HomePPG5",
@@ -85,6 +86,14 @@ FEATURE_COLUMNS = [
     "NeutralVenue",
     "WorldCupMatch",
     "KnockoutMatch",
+    "ClubMatch",
+    "InternationalMatch",
+    "TournamentWorldCup",
+    "TournamentContinental",
+    "TournamentQualifier",
+    "TournamentNationsLeague",
+    "TournamentFriendly",
+    "TournamentOther",
     "ImpHome",
     "ImpDraw",
     "ImpAway",
@@ -128,14 +137,20 @@ def _new_calibrated_model(y: pd.Series) -> Pipeline:
     )
 
 
-def train_baseline_model(df: pd.DataFrame) -> tuple[Pipeline | None, pd.DataFrame]:
+def train_baseline_model(df: pd.DataFrame, selected_competition: object | None = None) -> tuple[Pipeline | None, pd.DataFrame]:
     """Train a calibrated football model on chronological, pre-match features."""
     dataset = build_match_features(df)
     if len(dataset) < 30 or dataset["FTR"].nunique() < 2 or dataset["FTR"].value_counts().min() < 2:
         return None, dataset
 
     model = _new_calibrated_model(dataset["FTR"])
-    model.fit(dataset[FEATURE_COLUMNS], dataset["FTR"])
+    sample_weight = None
+    if selected_competition and str(selected_competition).strip().lower() == "fifa world cup" and "Competition" in dataset.columns:
+        sample_weight = dataset["Competition"].map(lambda value: international_training_weight(value, selected_competition)).astype(float)
+    if sample_weight is not None:
+        model.fit(dataset[FEATURE_COLUMNS], dataset["FTR"], clf__sample_weight=sample_weight)
+    else:
+        model.fit(dataset[FEATURE_COLUMNS], dataset["FTR"])
     return model, dataset
 
 
@@ -240,7 +255,8 @@ def prediction_explanation(
         f"Venue/rest: {venue}; venue PPG {row['HomeVenuePPG']:.2f} vs {row['AwayVenuePPG']:.2f}; rest days {row['HomeRestDays']:.0f} vs {row['AwayRestDays']:.0f}.",
         f"Head-to-head context: {row['H2HMatches']:.0f} recent meetings, {home_team} averaged {row['HomeH2HPPG']:.2f} points.",
         f"Elo: {home_team} {row['HomeElo']:.0f}, {away_team} {row['AwayElo']:.0f}, venue-adjusted difference {row['EloDiff']:.0f}.",
-        f"Match type: World Cup flag {bool(row['WorldCupMatch'])}, knockout/high-pressure flag {bool(row['KnockoutMatch'])}.",
+        f"Training scope feature: {'international/national-team' if row['InternationalMatch'] else 'club'} match context; World Cup flag {bool(row['WorldCupMatch'])}, knockout/high-pressure flag {bool(row['KnockoutMatch'])}.",
+        f"Tournament category influence: {tournament_category('FIFA World Cup' if row['TournamentWorldCup'] else 'UEFA Nations League' if row['TournamentNationsLeague'] else 'International Friendly' if row['TournamentFriendly'] else 'Qualifier' if row['TournamentQualifier'] else 'Continental tournament' if row['TournamentContinental'] else 'Other')} category indicators are included in the model.",
         f"Market context: normalized implied probabilities H/D/A {row['ImpHome']:.1%}/{row['ImpDraw']:.1%}/{row['ImpAway']:.1%}; entropy {row['MarketEntropy']:.2f}.",
     ]
 
@@ -361,6 +377,11 @@ def similar_historical_matches(
                     "ImpAway",
                     "NeutralVenue",
                     "WorldCupMatch",
+                    "TournamentWorldCup",
+                    "TournamentContinental",
+                    "TournamentQualifier",
+                    "TournamentNationsLeague",
+                    "TournamentFriendly",
                 }
                 else 1.0
             )

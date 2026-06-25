@@ -86,9 +86,9 @@ def generate_next_48h_predictions(now: pd.Timestamp | None = None, competition: 
     upcoming = upcoming[(upcoming["FixtureDateTime"] >= now) & (upcoming["FixtureDateTime"] <= horizon)].copy()
     if upcoming.empty:
         return _write_empty_predictions("No matches are scheduled in the next 48 hours.")
-    model, training = train_baseline_model(historical)
+    model, training = train_baseline_model(historical, competition)
     if model is None:
-        return _write_empty_predictions("Not enough historical rows with odds to train the prediction model.")
+        return _write_empty_predictions("Not enough historical rows to train the prediction model.")
     rows: list[dict] = []
     for _, fixture in upcoming.iterrows():
         implied = odds_to_probabilities(fixture.HomeOdds, fixture.DrawOdds, fixture.AwayOdds)

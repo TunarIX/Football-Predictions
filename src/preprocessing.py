@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from .match_context import CompetitionType, competition_type, tournament_category
+
 EXPECTED_COLUMNS = [
     "Date",
     "HomeTeam",
@@ -113,7 +115,7 @@ def _finish_cleaning(data: pd.DataFrame) -> pd.DataFrame:
             *EXPECTED_COLUMNS,
             *[
                 c
-                for c in ["Competition", "Neutral", "Country", "SourceFile"]
+                for c in ["Competition", "CompetitionType", "MatchType", "TournamentCategory", "Neutral", "Country", "SourceFile"]
                 if c in data.columns
             ],
         ]
@@ -129,6 +131,14 @@ def _finish_cleaning(data: pd.DataFrame) -> pd.DataFrame:
     data.loc[missing_source & avg_available, "OddsSource"] = "Market Avg"
     data.loc[missing_source & ~avg_available & bet365_available, "OddsSource"] = "Bet365"
     data.loc[missing_source & ~avg_available & ~bet365_available, "OddsSource"] = "Unavailable"
+    if "Competition" in data.columns:
+        data["Competition"] = data["Competition"].astype("string").str.strip()
+    else:
+        data["Competition"] = pd.NA
+    data["CompetitionType"] = data.get("CompetitionType", data["Competition"].map(competition_type)).fillna(data["Competition"].map(competition_type))
+    data["MatchType"] = data.get("MatchType", data["CompetitionType"]).fillna(data["CompetitionType"])
+    data["TournamentCategory"] = data.get("TournamentCategory", data["Competition"].map(tournament_category)).fillna(data["Competition"].map(tournament_category))
+    data.loc[data["CompetitionType"].isna() | (data["CompetitionType"].astype(str).str.strip() == ""), "CompetitionType"] = CompetitionType.CLUB.value
     data["FTR"] = data["FTR"].str.upper()
     data["HTR"] = data["HTR"].str.upper()
     data = data.dropna(subset=REQUIRED_COLUMNS)
@@ -139,7 +149,12 @@ def _finish_cleaning(data: pd.DataFrame) -> pd.DataFrame:
 
 def clean_match_data(df: pd.DataFrame) -> pd.DataFrame:
     """Clean and standardize uploaded football-data.co.uk historical match rows."""
-    return _finish_cleaning(normalize_columns(df).copy())
+    data = normalize_columns(df).copy()
+    data["CompetitionType"] = CompetitionType.CLUB.value
+    data["MatchType"] = CompetitionType.CLUB.value
+    if "Competition" in data.columns:
+        data["TournamentCategory"] = data["Competition"].map(tournament_category)
+    return _finish_cleaning(data)
 
 
 def clean_international_match_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -156,4 +171,8 @@ def clean_international_match_data(df: pd.DataFrame) -> pd.DataFrame:
         data["FTR"] = "D"
         data.loc[home_goals > away_goals, "FTR"] = "H"
         data.loc[home_goals < away_goals, "FTR"] = "A"
+    data["CompetitionType"] = CompetitionType.INTERNATIONAL.value
+    data["MatchType"] = CompetitionType.INTERNATIONAL.value
+    if "Competition" in data.columns:
+        data["TournamentCategory"] = data["Competition"].map(tournament_category)
     return _finish_cleaning(data)

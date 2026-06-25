@@ -13,7 +13,8 @@ import pandas as pd
 
 from scripts.data_sources import UPCOMING_COLUMNS, normalize_upcoming_frame
 from src.data_loader import safe_read_csv
-from src.preprocessing import EXPECTED_COLUMNS, clean_international_match_data
+from src.preprocessing import EXPECTED_COLUMNS, clean_international_match_data, clean_match_data
+from src.match_context import CompetitionType
 
 INTERNATIONAL_HISTORICAL = Path("data/processed/international_matches.csv")
 INTERNATIONAL_UPCOMING = Path("data/upcoming/international_fixtures.csv")
@@ -60,9 +61,15 @@ def load_historical_matches_for_competition(competition: str | None, bookmaker: 
             return pd.DataFrame(columns=EXPECTED_COLUMNS), str(INTERNATIONAL_HISTORICAL), MISSING_INTERNATIONAL_HISTORY_MESSAGE
         raw = safe_read_csv(INTERNATIONAL_HISTORICAL, EXPECTED_COLUMNS, parse_dates=["Date"])
         cleaned = clean_international_match_data(raw) if not raw.empty else pd.DataFrame(columns=EXPECTED_COLUMNS)
-        filtered = _filter_competition(cleaned, competition)
-        return filtered, str(INTERNATIONAL_HISTORICAL), None
-    data = safe_read_csv(CLUB_HISTORICAL, EXPECTED_COLUMNS, parse_dates=["Date"])
+        # Keep FIFA World Cup training competition-aware without narrowing to only
+        # World Cup rows: all national-team matches remain in scope and the model
+        # weights tournament categories during training. Upcoming fixtures are
+        # still filtered by selected tournament.
+        return cleaned, str(INTERNATIONAL_HISTORICAL), None
+    raw = safe_read_csv(CLUB_HISTORICAL, EXPECTED_COLUMNS, parse_dates=["Date"])
+    data = clean_match_data(raw) if not raw.empty else pd.DataFrame(columns=EXPECTED_COLUMNS)
+    if not data.empty and "CompetitionType" in data.columns:
+        data = data[data["CompetitionType"].astype(str).str.casefold() == CompetitionType.CLUB.value].copy()
     if competition and not data.empty and "Competition" in data.columns:
         data = data[data["Competition"].astype(str).str.casefold() == competition.casefold()].copy()
     return data, str(CLUB_HISTORICAL), None

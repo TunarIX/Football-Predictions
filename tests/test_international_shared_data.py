@@ -210,3 +210,90 @@ def test_invalid_download_does_not_overwrite_valid_processed_file(tmp_path: Path
         raise AssertionError("invalid download should fail validation")
 
     assert output.read_text() == valid_contents
+
+
+def _mixed_scope_rows() -> pd.DataFrame:
+    rows = []
+    intl_teams = ["France", "Norway", "Brazil", "Japan"]
+    club_teams = ["Arsenal", "Chelsea", "Liverpool", "Everton"]
+    for i in range(70):
+        home = intl_teams[i % 4]
+        away = intl_teams[(i + 1) % 4]
+        rows.append({"Date": pd.Timestamp("2020-01-01") + pd.Timedelta(days=i), "Competition": "FIFA World Cup" if i % 4 == 0 else "International Friendly", "HomeTeam": home, "AwayTeam": away, "FTHG": i % 4, "FTAG": (i + 1) % 3, "FTR": "H" if i % 3 == 0 else "A" if i % 3 == 1 else "D", "CompetitionType": "international", "MatchType": "international"})
+        rows.append({"Date": pd.Timestamp("2020-01-01") + pd.Timedelta(days=i), "Competition": "Premier League", "HomeTeam": club_teams[i % 4], "AwayTeam": club_teams[(i + 1) % 4], "FTHG": (i + 2) % 4, "FTAG": i % 3, "FTR": "H" if i % 2 == 0 else "A", "CompetitionType": "club", "MatchType": "club"})
+    return pd.DataFrame(rows)
+
+
+def test_world_cup_predictions_never_use_club_rows(tmp_path: Path, monkeypatch) -> None:
+    import src.fixtures as fixtures
+    path = tmp_path / "international.csv"
+    clean_international_match_data(_mixed_scope_rows()[lambda df: df["CompetitionType"] == "international"]).to_csv(path, index=False)
+    monkeypatch.setattr(fixtures, "INTERNATIONAL_HISTORICAL", path)
+
+    loaded, _, _ = fixtures.load_historical_matches_for_competition("FIFA World Cup")
+
+    assert not loaded.empty
+    assert set(loaded["CompetitionType"].astype(str)) == {"international"}
+    assert set(loaded["Competition"].str.strip()) == {"FIFA World Cup", "International Friendly"}
+    assert not loaded["HomeTeam"].isin(["Arsenal", "Chelsea", "Liverpool", "Everton"]).any()
+
+
+def test_club_predictions_never_use_international_rows(tmp_path: Path, monkeypatch) -> None:
+    import src.fixtures as fixtures
+    path = tmp_path / "historical.csv"
+    _mixed_scope_rows().to_csv(path, index=False)
+    monkeypatch.setattr(fixtures, "CLUB_HISTORICAL", path)
+
+    loaded, _, _ = fixtures.load_historical_matches_for_competition("Premier League")
+
+    assert not loaded.empty
+    assert set(loaded["CompetitionType"].astype(str)) == {"club"}
+    assert set(loaded["Competition"].str.strip()) == {"Premier League"}
+    assert not loaded["HomeTeam"].isin(["France", "Norway", "Brazil", "Japan"]).any()
+
+
+def test_similar_world_cup_matches_are_international_only() -> None:
+    from src.odds import add_implied_probabilities, odds_to_probabilities
+    from src.predictor import predict_match, similar_historical_matches, train_baseline_model
+
+    intl = clean_international_match_data(_mixed_scope_rows()[lambda df: df["CompetitionType"] == "international"])
+    intl = add_implied_probabilities(intl)
+    model, training = train_baseline_model(intl, "FIFA World Cup")
+    assert model is not None
+    _, feature_row, _ = predict_match(model, intl, "France", "Norway", odds_to_probabilities(float("nan"), float("nan"), float("nan")), competition="FIFA World Cup", neutral=True)
+
+    similar = similar_historical_matches(training, feature_row)
+
+    assert not similar.empty
+    assert set(similar["CompetitionType"].astype(str)) == {"international"}
+    assert not similar["Competition"].str.contains("Premier League|La Liga|Bundesliga", case=False, na=False).any()
+
+
+def test_missing_odds_still_allow_world_cup_prediction() -> None:
+    from src.predictor import predict_match, train_baseline_model
+
+    intl = clean_international_match_data(_mixed_scope_rows()[lambda df: df["CompetitionType"] == "international"])
+    model, _ = train_baseline_model(intl, "FIFA World Cup")
+    assert model is not None
+
+    prediction, feature_row, notes = predict_match(model, intl, "France", "Norway", (float("nan"), float("nan"), float("nan")), competition="FIFA World Cup", neutral=True)
+
+    assert not prediction.empty
+    assert feature_row[["ImpHome", "ImpDraw", "ImpAway"]].notna().all(axis=None)
+    assert any("Tournament category influence" in note for note in notes)
+
+
+def test_international_fixture_downloader_keeps_existing_file_on_invalid_download(tmp_path: Path, monkeypatch) -> None:
+    from scripts.update_international_fixtures import update_international_fixtures
+    import scripts.update_international_fixtures as updater
+
+    output = tmp_path / "international_fixtures.csv"
+    valid = "Date,Time,Competition,HomeTeam,AwayTeam,HomeOdds,DrawOdds,AwayOdds,OddsSource\n2030-06-13,20:00,FIFA World Cup,Spain,Brazil,,,,Unavailable\n"
+    output.write_text(valid)
+    monkeypatch.setattr(updater, "_source_urls", lambda: ["https://example.test/empty.csv", "https://example.test/fail.csv"])
+    monkeypatch.setattr(updater, "_download", lambda url, timeout=30: b"Date,Competition,HomeTeam,AwayTeam\n")
+
+    result = update_international_fixtures(output=output)
+
+    assert len(result) == 1
+    assert output.read_text() == valid
